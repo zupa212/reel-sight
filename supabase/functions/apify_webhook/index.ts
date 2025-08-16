@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { createHash } from "https://deno.land/std@0.168.0/crypto/crypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,42 +35,162 @@ serve(async (req) => {
 
     const payload = await req.json();
     
-    // Create hash for deduplication
+    // Create hash for deduplication using Web Crypto API
     const payloadString = JSON.stringify(payload);
-    const hash = await createHash("sha256")
-      .update(payloadString)
-      .digest("hex");
+    const encoder = new TextEncoder();
+    const data = encoder.encode(payloadString);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Insert webhook into inbox
-    const { error } = await supabase.from("webhooks_inbox").insert({
-      source,
-      payload,
-      hash,
-      dedupe_key: `${source}_${hash}`
-    });
+    console.log(`Processing Apify webhook from ${source}, hash: ${hash}`);
+    console.log(`Payload:`, JSON.stringify(payload, null, 2));
 
-    if (error) {
-      console.error("Error inserting webhook:", error);
-      return new Response(JSON.stringify({ error: error.message }), { 
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+    // Process Apify webhook data
+    if (payload.resource?.defaultDatasetId) {
+      const datasetId = payload.resource.defaultDatasetId;
+      console.log(`Fetching dataset items from: ${datasetId}`);
+      
+      try {
+        // Fetch dataset items from Apify
+        const apifyToken = Deno.env.get("APIFY_TOKEN");
+        if (!apifyToken) {
+          throw new Error("APIFY_TOKEN not configured");
+        }
+
+        const datasetResponse = await fetch(
+          `https://api.apify.com/v2/datasets/${datasetId}/items?token=${apifyToken}&format=json`,
+          { headers: { 'Accept': 'application/json' } }
+        );
+
+        if (!datasetResponse.ok) {
+          throw new Error(`Apify API error: ${datasetResponse.status}`);
+        }
+
+        const items = await datasetResponse.json();
+        console.log(`Processing ${items.length} reel items`);
+
+        let processedReels = 0;
+        let errors = 0;
+
+        for (const item of items) {
+          try {
+            // Find model by Instagram username
+            const { data: model } = await supabase
+              .from("models")
+              .select("*")
+              .eq("instagram_username", item.ownerUsername)
+              .single();
+
+            if (!model) {
+              console.log(`Model not found for username: ${item.ownerUsername}`);
+              continue;
+            }
+
+            // Upsert reel data
+            const reelData = {
+              workspace_id: model.workspace_id,
+              model_id: model.id,
+              platform_post_id: item.id,
+              url: item.url,
+              caption: item.caption || "",
+              hashtags: item.hashtags || [],
+              posted_at: new Date(item.timestamp).toISOString(),
+              duration_seconds: item.videoDuration || null,
+              thumbnail_url: item.displayUrl || null
+            };
+
+            const { data: reel, error: reelError } = await supabase
+              .from("reels")
+              .upsert(reelData, { 
+                onConflict: 'workspace_id,platform_post_id',
+                ignoreDuplicates: false 
+              })
+              .select()
+              .single();
+
+            if (reelError) {
+              console.error(`Error upserting reel ${item.id}:`, reelError);
+              errors++;
+              continue;
+            }
+
+            // Upsert daily metrics
+            const today = new Date().toISOString().split('T')[0];
+            const metricsData = {
+              day: today,
+              workspace_id: model.workspace_id,
+              model_id: model.id,
+              reel_id: reel.id,
+              views: item.videoPlayCount || item.videoViewCount || 0,
+              likes: item.likesCount || 0,
+              comments: item.commentsCount || 0,
+              saves: 0, // Not available in Apify data
+              shares: 0, // Not available in Apify data
+              watch_time_seconds: 0, // Not available in Apify data
+              completion_rate: null // Not available in Apify data
+            };
+
+            const { error: metricsError } = await supabase
+              .from("reel_metrics_daily")
+              .upsert(metricsData, { 
+                onConflict: 'day,reel_id',
+                ignoreDuplicates: false 
+              });
+
+            if (metricsError) {
+              console.error(`Error upserting metrics for reel ${item.id}:`, metricsError);
+              errors++;
+            } else {
+              processedReels++;
+            }
+
+          } catch (itemError) {
+            console.error(`Error processing item ${item.id}:`, itemError);
+            errors++;
+          }
+        }
+
+        // Update cron status
+        await supabase.from("cron_status").upsert({
+          name: "apify_webhook_last",
+          last_run_at: new Date().toISOString(),
+          last_ok: errors === 0,
+          last_message: `Processed ${processedReels} reels, ${errors} errors`
+        });
+
+        console.log(`Webhook processing complete: ${processedReels} reels processed, ${errors} errors`);
+
+      } catch (datasetError) {
+        console.error("Error processing dataset:", datasetError);
+        
+        // Update cron status with error
+        await supabase.from("cron_status").upsert({
+          name: "apify_webhook_last",
+          last_run_at: new Date().toISOString(),
+          last_ok: false,
+          last_message: `Dataset processing error: ${datasetError.message}`
+        });
+      }
     }
 
     // Log webhook receipt
     await supabase.from("event_logs").insert({
       event: "webhook:received",
       level: "info",
-      context: { source, hash, payloadSize: payloadString.length },
+      context: { 
+        source, 
+        hash, 
+        payloadSize: payloadString.length,
+        datasetId: payload.resource?.defaultDatasetId || null
+      },
       page: "webhook"
     });
-
-    console.log(`Webhook received from ${source}, hash: ${hash}`);
 
     return new Response(JSON.stringify({ ok: true, hash }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 

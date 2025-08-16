@@ -22,7 +22,7 @@ serve(async (req) => {
     const { data: models, error: fetchError } = await supabase
       .from("models")
       .select("*")
-      .eq("status", "enabled");
+      .eq("enabled", true);
 
     if (fetchError) {
       console.error("Error fetching models:", fetchError);
@@ -32,24 +32,68 @@ serve(async (req) => {
     let scheduledCount = 0;
     let errorCount = 0;
 
-    for (const model of models || []) {
-      try {
-        // TODO: Trigger Apify scraping task for this model
-        // This would involve calling the Apify API to schedule a daily scrape
-        
-        // Update last_daily_scrape_at
-        await supabase
-          .from("models")
-          .update({ 
-            last_daily_scrape_at: new Date().toISOString() 
-          })
-          .eq("id", model.id);
+    // Group usernames into chunks of 10 for efficient Apify runs
+    const usernames = models?.map(m => m.instagram_username).filter(Boolean) || [];
+    const chunks = [];
+    for (let i = 0; i < usernames.length; i += 10) {
+      chunks.push(usernames.slice(i, i + 10));
+    }
 
-        scheduledCount++;
-        console.log(`Scheduled daily scrape for model: ${model.username}`);
+    console.log(`Processing ${chunks.length} chunks for ${usernames.length} models`);
+
+    for (const chunk of chunks) {
+      try {
+        const apifyToken = Deno.env.get("APIFY_TOKEN");
+        if (!apifyToken) {
+          throw new Error("APIFY_TOKEN not configured");
+        }
+
+        const webhookUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/apify_webhook?source=instagram&secret=${Deno.env.get("APIFY_WEBHOOK_SECRET")}`;
+        
+        const runResponse = await fetch(
+          `https://api.apify.com/v2/acts/apify~instagram-reel-scraper/runs?token=${apifyToken}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              input: {
+                username: chunk,
+                resultsLimit: 3 // Limit for daily scraping
+              },
+              webhooks: [{
+                eventTypes: ["ACTOR.RUN.SUCCEEDED"],
+                requestUrl: webhookUrl
+              }]
+            })
+          }
+        );
+
+        if (!runResponse.ok) {
+          const errorText = await runResponse.text();
+          throw new Error(`Apify API error: ${runResponse.status} - ${errorText}`);
+        }
+
+        const runData = await runResponse.json();
+        console.log(`Apify run started for chunk:`, chunk, "Run ID:", runData.data.id);
+
+        // Update last_daily_scrape_at for models in this chunk
+        for (const username of chunk) {
+          const model = models?.find(m => m.instagram_username === username);
+          if (model) {
+            await supabase
+              .from("models")
+              .update({ 
+                last_daily_scrape_at: new Date().toISOString() 
+              })
+              .eq("id", model.id);
+          }
+        }
+
+        scheduledCount += chunk.length;
+        console.log(`Scheduled daily scrape for ${chunk.length} models in chunk`);
       } catch (error) {
-        console.error(`Error scheduling scrape for model ${model.id}:`, error);
-        errorCount++;
+        console.error(`Error scheduling scrape for chunk:`, chunk, error);
+        errorCount += chunk.length;
       }
     }
 
