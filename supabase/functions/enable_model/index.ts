@@ -93,7 +93,7 @@ serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             input: {
-              username: [model.username],
+              username: model.username,
               resultsLimit: 100
             },
             webhooks: [{
