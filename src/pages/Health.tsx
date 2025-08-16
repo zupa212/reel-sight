@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -16,20 +16,48 @@ import {
   Activity,
   Webhook,
   Settings,
-  Code2
+  Code2,
+  Play,
+  Send
 } from 'lucide-react';
 import { format } from 'date-fns';
+import { useCronStatus } from '@/lib/supabase-queries';
+import { callEdge } from '@/lib/action';
+import { track } from '@/lib/track';
+import { useToast } from '@/hooks/use-toast';
 
 export default function Health() {
-  // Mock health data - in real app this would come from actual health checks
+  const [isTestingWebhook, setIsTestingWebhook] = useState(false);
+  const [isTestingInbox, setIsTestingInbox] = useState(false);
+  const [isTestingModel, setIsTestingModel] = useState(false);
+  
+  const { toast } = useToast();
+  const { data: cronStatus, isLoading: cronLoading, refetch: refetchCron } = useCronStatus();
+  
+  // Environment status checks
   const environmentStatus = {
-    supabaseUrl: 'https://gmhirmoqzuipceblfzfe.supabase.co',
+    supabaseUrl: import.meta.env.VITE_SUPABASE_URL || 'https://gmhirmoqzuipceblfzfe.supabase.co',
+    enableModelUrl: import.meta.env.VITE_ENABLE_MODEL_URL || null,
+    apifyWebhookUrl: import.meta.env.VITE_APIFY_WEBHOOK_URL || null,
     supabaseConnected: true,
     secretsConfigured: {
       apifyToken: true,
       apifyWebhookSecret: true
     }
   };
+
+  // Helper function to check if URL is present
+  const checkEnvVar = (varName: string, value: string | null) => ({
+    name: varName,
+    present: !!value,
+    value: value || 'Not configured'
+  });
+
+  const envVars = [
+    checkEnvVar('VITE_SUPABASE_URL', environmentStatus.supabaseUrl),
+    checkEnvVar('VITE_ENABLE_MODEL_URL', environmentStatus.enableModelUrl),
+    checkEnvVar('VITE_APIFY_WEBHOOK_URL', environmentStatus.apifyWebhookUrl)
+  ];
 
   const edgeFunctions = [
     {
@@ -77,20 +105,30 @@ export default function Health() {
     }
   };
 
+  // Process cron status data
+  const getCronJobStatus = (jobName: string) => {
+    const job = cronStatus?.find(status => status.name === jobName);
+    return job || { name: jobName, last_ok: null, last_run_at: null, last_message: null };
+  };
+
   const cronJobs = [
     {
-      name: 'Daily Reel Scraping',
+      name: 'schedule_scrape_reels',
+      displayName: 'Daily Reel Scraping',
       schedule: '0 6 * * *', // 6 AM daily
-      lastRun: new Date('2024-01-15T06:00:00Z'),
-      nextRun: new Date('2024-01-16T06:00:00Z'),
-      status: 'success'
+      ...getCronJobStatus('schedule_scrape_reels')
     },
     {
-      name: 'Process Webhook Inbox',
+      name: 'process_inbox',
+      displayName: 'Process Webhook Inbox',
       schedule: '*/15 * * * *', // Every 15 minutes
-      lastRun: new Date('2024-01-15T11:15:00Z'),
-      nextRun: new Date('2024-01-15T11:30:00Z'),
-      status: 'success'
+      ...getCronJobStatus('process_inbox')
+    },
+    {
+      name: 'apify_webhook_last',
+      displayName: 'Apify Webhook Handler',
+      schedule: 'On demand',
+      ...getCronJobStatus('apify_webhook_last')
     }
   ];
 
@@ -124,18 +162,134 @@ export default function Health() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (status: string | boolean | null) => {
+    const normalizedStatus = typeof status === 'boolean' ? (status ? 'success' : 'failed') : status;
+    
+    switch (normalizedStatus) {
       case 'healthy':
       case 'success':
-        return <Badge className="bg-success/10 text-success border-success/20">{status}</Badge>;
+      case true:
+        return <Badge className="bg-success/10 text-success border-success/20">healthy</Badge>;
       case 'warning':
-        return <Badge className="bg-warning/10 text-warning border-warning/20">{status}</Badge>;
+        return <Badge className="bg-warning/10 text-warning border-warning/20">warning</Badge>;
       case 'error':
       case 'failed':
-        return <Badge className="bg-destructive/10 text-destructive border-destructive/20">{status}</Badge>;
+      case false:
+        return <Badge className="bg-destructive/10 text-destructive border-destructive/20">error</Badge>;
       default:
-        return <Badge variant="secondary">{status}</Badge>;
+        return <Badge variant="secondary">unknown</Badge>;
+    }
+  };
+
+  // Test functions
+  const testSendWebhook = async () => {
+    setIsTestingWebhook(true);
+    track('health:test_webhook_start');
+    
+    try {
+      const webhookUrl = environmentStatus.apifyWebhookUrl;
+      if (!webhookUrl) {
+        toast({
+          title: "Error",
+          description: "VITE_APIFY_WEBHOOK_URL not configured",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-apify-run-id': 'test-run-' + Date.now()
+        },
+        body: JSON.stringify({
+          resource: { id: 'test-dataset-123' },
+          eventType: 'ACTOR.RUN.SUCCEEDED',
+          data: {
+            datasetId: 'test-dataset-123',
+            status: 'SUCCEEDED'
+          }
+        })
+      });
+
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: "Test webhook sent successfully"
+        });
+        track('health:test_webhook_success');
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Webhook test failed: ${error}`,
+        variant: "destructive"
+      });
+      track('health:test_webhook_error', { error: String(error) });
+    } finally {
+      setIsTestingWebhook(false);
+    }
+  };
+
+  const testProcessInbox = async () => {
+    setIsTestingInbox(true);
+    track('health:test_process_inbox_start');
+    
+    try {
+      const result = await callEdge('https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/process_inbox');
+      
+      if (result.ok) {
+        toast({
+          title: "Success",
+          description: "Process inbox executed successfully"
+        });
+        track('health:test_process_inbox_success');
+        refetchCron();
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Process inbox test failed: ${error}`,
+        variant: "destructive"
+      });
+      track('health:test_process_inbox_error', { error: String(error) });
+    } finally {
+      setIsTestingInbox(false);
+    }
+  };
+
+  const testEnableModel = async () => {
+    setIsTestingModel(true);
+    track('health:test_enable_model_start');
+    
+    try {
+      const result = await callEdge('https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/enable_model', {
+        modelId: 'demo-model-id'
+      });
+      
+      if (result.ok) {
+        toast({
+          title: "Success",
+          description: "Enable model test executed successfully"
+        });
+        track('health:test_enable_model_success');
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Enable model test failed: ${error}`,
+        variant: "destructive"
+      });
+      track('health:test_enable_model_error', { error: String(error) });
+    } finally {
+      setIsTestingModel(false);
     }
   };
 
@@ -168,16 +322,22 @@ export default function Health() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm">Supabase Connection</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {getStatusIcon(environmentStatus.supabaseConnected ? 'success' : 'error')}
-                <span className="text-xs text-muted-foreground font-mono">
-                  {environmentStatus.supabaseUrl}
-                </span>
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Environment Variables</div>
+              <div className="space-y-1">
+                {envVars.map((envVar) => (
+                  <div key={envVar.name} className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground font-mono">{envVar.name}</span>
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(envVar.present ? 'success' : 'error')}
+                      {envVar.present && (
+                        <span className="text-xs text-muted-foreground max-w-32 truncate">
+                          {envVar.value}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
             
@@ -341,20 +501,35 @@ export default function Health() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {cronJobs.map((job, index) => (
-              <div key={index} className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-sm">{job.name}</span>
-                  {getStatusIcon(job.status)}
-                </div>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <div>Schedule: <span className="font-mono">{job.schedule}</span></div>
-                  <div>Last run: {format(job.lastRun, 'MMM d, HH:mm')}</div>
-                  <div>Next run: {format(job.nextRun, 'MMM d, HH:mm')}</div>
-                </div>
-                {index < cronJobs.length - 1 && <Separator />}
+            {cronLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                ))}
               </div>
-            ))}
+            ) : (
+              cronJobs.map((job, index) => (
+                <div key={job.name} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-sm">{job.displayName}</span>
+                    {getStatusBadge(job.last_ok)}
+                  </div>
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <div>Schedule: <span className="font-mono">{job.schedule}</span></div>
+                    <div>
+                      Last run: {job.last_run_at ? 
+                        format(new Date(job.last_run_at), 'MMM d, HH:mm') : 
+                        'Never'
+                      }
+                    </div>
+                    {job.last_message && (
+                      <div>Message: <span className="font-mono">{job.last_message}</span></div>
+                    )}
+                  </div>
+                  {index < cronJobs.length - 1 && <Separator />}
+                </div>
+              ))
+            )}
           </CardContent>
         </Card>
 
@@ -410,6 +585,55 @@ export default function Health() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Testing Buttons */}
+      <Card className="bg-gradient-card border-0 shadow-md">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Play className="w-5 h-5" />
+            System Tests
+          </CardTitle>
+          <CardDescription>
+            Test core system functionality and edge functions
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <Button 
+              onClick={testSendWebhook}
+              disabled={isTestingWebhook || !environmentStatus.apifyWebhookUrl}
+              className="flex items-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              {isTestingWebhook ? 'Sending...' : 'Send Test Webhook'}
+            </Button>
+            
+            <Button 
+              onClick={testProcessInbox}
+              disabled={isTestingInbox}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Webhook className="w-4 h-4" />
+              {isTestingInbox ? 'Processing...' : 'Run Process Inbox'}
+            </Button>
+            
+            <Button 
+              onClick={testEnableModel}
+              disabled={isTestingModel}
+              variant="outline"
+              className="flex items-center gap-2"
+            >
+              <Zap className="w-4 h-4" />
+              {isTestingModel ? 'Testing...' : 'Test Enable Model'}
+            </Button>
+          </div>
+          
+          <div className="text-sm text-muted-foreground">
+            These tests help verify that your edge functions and webhook endpoints are working correctly.
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

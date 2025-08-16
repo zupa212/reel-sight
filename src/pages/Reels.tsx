@@ -89,6 +89,7 @@ export default function Reels() {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedReel, setSelectedReel] = useState<any>(null);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState<string>('');
   
   const { data: models } = useModels();
   const { data: reels, isLoading, error } = useReels({
@@ -96,6 +97,17 @@ export default function Reels() {
     dateRange,
     minViews: minViews[0]
   });
+
+  // Debounce search input
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 300);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [searchTerm]);
 
   useEffect(() => {
     track('reels:page_load', { 
@@ -159,8 +171,9 @@ export default function Reels() {
     
     const matchesModel = selectedModel === 'all' || username === selectedModel;
     const matchesViews = (latestMetrics?.views || 0) >= minViews[0];
-    const matchesSearch = (reel.caption || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         username.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = !debouncedSearchTerm || 
+                         (reel.caption || '').toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+                         username.toLowerCase().includes(debouncedSearchTerm.toLowerCase());
     return matchesModel && matchesViews && matchesSearch;
   });
 
@@ -340,7 +353,7 @@ export default function Reels() {
                   const latestMetrics = reel.reel_metrics_daily?.[0] || reel.metrics;
                   const username = reel.models?.username || reel.modelUsername?.replace('@', '');
                   const postedAt = reel.posted_at ? new Date(reel.posted_at) : reel.postedAt;
-                  const weeklyData = reel.weeklyViews || reel.reel_metrics_daily?.map(m => m.views || 0).slice(-7) || [0, 0, 0, 0, 0, 0, latestMetrics?.views || 0];
+                  const weeklyData = reel.weeklyViews || (Array.isArray(latestMetrics?.views) ? latestMetrics.views : [0, 0, 0, 0, 0, 0, latestMetrics?.views || 0]);
                   
                   return (
                     <TableRow 

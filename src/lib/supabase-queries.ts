@@ -70,7 +70,14 @@ export function useReels(filters?: {
         .select(`
           *,
           models!inner(username, display_name),
-          reel_metrics_daily(*)
+          reel_metrics_daily(
+            day,
+            views,
+            likes,
+            comments,
+            shares,
+            saves
+          )
         `)
         .order('posted_at', { ascending: false });
 
@@ -86,6 +93,11 @@ export function useReels(filters?: {
         query = query.gte('posted_at', cutoffDate.toISOString());
       }
 
+      // Apply min views filter at database level for better performance
+      if (filters?.minViews && filters.minViews > 0) {
+        query = query.gte('reel_metrics_daily.views', filters.minViews);
+      }
+
       const { data, error } = await query;
       
       if (error) {
@@ -93,17 +105,29 @@ export function useReels(filters?: {
         throw error;
       }
       
-      // Filter by min views if specified
-      let filteredData = data || [];
-      if (filters?.minViews) {
-        filteredData = filteredData.filter(reel => {
-          const latestMetrics = reel.reel_metrics_daily?.[0];
-          return latestMetrics && latestMetrics.views >= filters.minViews;
-        });
-      }
+      // Process data to structure 7-day sparkline data
+      const processedData = (data || []).map(reel => {
+        // Sort metrics by day (most recent first) and get last 7 days
+        const sortedMetrics = (reel.reel_metrics_daily || [])
+          .sort((a, b) => new Date(b.day).getTime() - new Date(a.day).getTime())
+          .slice(0, 7);
+        
+        // Create 7-day view trend (reverse to show oldest to newest)
+        const weeklyViews = sortedMetrics.reverse().map(m => m.views || 0);
+        
+        // Pad with zeros if we don't have 7 days of data
+        while (weeklyViews.length < 7) {
+          weeklyViews.unshift(0);
+        }
+        
+        return {
+          ...reel,
+          weeklyViews
+        };
+      });
       
-      track('query:reels_fetch_ok', { count: filteredData.length });
-      return filteredData;
+      track('query:reels_fetch_ok', { count: processedData.length });
+      return processedData;
     }
   });
 }
