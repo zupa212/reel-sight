@@ -29,14 +29,27 @@ export function useCurrentWorkspace() {
   return useQuery({
     queryKey: ['current-workspace'],
     queryFn: async () => {
+      track('query:current_workspace_fetch_start');
+      
+      const { data: user, error: userError } = await supabase.auth.getUser();
+      if (userError || !user.user) {
+        throw new Error('User not authenticated');
+      }
+
       const { data, error } = await supabase
         .from('workspace_members')
         .select('workspace_id')
-        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
-        .single();
+        .eq('user_id', user.user.id)
+        .limit(1)
+        .maybeSingle();
       
-      if (error) throw error;
-      return data.workspace_id;
+      if (error) {
+        track('query:current_workspace_fetch_error', { error: error.message });
+        throw error;
+      }
+      
+      track('query:current_workspace_fetch_ok', { workspaceId: data?.workspace_id });
+      return data?.workspace_id || null;
     }
   });
 }
