@@ -93,13 +93,18 @@ serve(async (req) => {
 
       const webhookUrl = `${supabaseUrl}/functions/v1/apify_webhook?source=instagram&secret=${apifyWebhookSecret}`;
       
-      // Use the correct Apify actor ID for Instagram Reel Scraper
+      // Use the correct Apify actor ID for Instagram Reel Scraper  
       const actorId = "xMc5Ga1oCONPmWJIa";
       const apifyUrl = `https://api.apify.com/v2/acts/${actorId}/runs?token=${apifyToken}`;
       
       const apifyInput = {
         usernames: [model.username], // Updated to use 'usernames' field
-        resultsLimit: 100
+        resultsLimit: 100,
+        // Add webhook configuration to get notified when scraping completes
+        webhooks: [{
+          eventTypes: ["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.ABORTED"],
+          requestUrl: webhookUrl
+        }]
       };
 
       console.log(`Starting Apify run for ${model.username}:`, {
