@@ -35,7 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { useModels, useAddModel, useReels } from '@/lib/supabase-queries';
+import { useModels, useAddModelDirect, useReels, useCurrentWorkspace } from '@/lib/supabase-queries';
 import { track } from '@/lib/track';
 import { callEdge } from '@/lib/action';
 import { addModelSchema } from '@/lib/validation';
@@ -52,7 +52,8 @@ export default function Models() {
   const { toast } = useToast();
   const { data: models, isLoading, error } = useModels();
   const { data: reels } = useReels();
-  const addModelMutation = useAddModel();
+  const { data: currentWorkspaceId } = useCurrentWorkspace();
+  const addModelMutation = useAddModelDirect();
 
   // Count reels per model
   const reelsCount = useMemo(() => {
@@ -65,36 +66,39 @@ export default function Models() {
 
   const handleAddModel = async () => {
     if (!newModelUsername.trim()) return;
+    if (!currentWorkspaceId) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "No workspace found. Please try again."
+      });
+      return;
+    }
     
-    // Clean username (remove @ if present)
+    // Strip leading '@' from input
     const cleanUsername = newModelUsername.replace(/^@/, '');
     
     track('models:add_clicked', { username: cleanUsername });
     
     try {
-      const validatedData = addModelSchema.parse({
-        username: cleanUsername,
-        displayName: newModelDisplayName || undefined
-      });
-      
       await addModelMutation.mutateAsync({
-        username: validatedData.username,
-        displayName: validatedData.displayName
+        username: cleanUsername,
+        workspaceId: currentWorkspaceId
       });
       
       toast({
         title: "Model added",
-        description: `@${validatedData.username} has been added to your tracking list.`
+        description: `@${cleanUsername} has been added to your tracking list.`
       });
       
       setNewModelUsername('');
       setNewModelDisplayName('');
       setIsAddModalOpen(false);
       
-      track('models:add_success', { username: validatedData.username });
+      track('models:add_ok', { username: cleanUsername });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      track('models:add_failed', { error: errorMessage });
+      track('models:add_error', { error: errorMessage });
       
       toast({
         variant: "destructive",

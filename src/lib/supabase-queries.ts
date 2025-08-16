@@ -24,6 +24,59 @@ export function useModels() {
   });
 }
 
+// Get current user's workspace ID
+export function useCurrentWorkspace() {
+  return useQuery({
+    queryKey: ['current-workspace'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('workspace_members')
+        .select('workspace_id')
+        .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+      
+      if (error) throw error;
+      return data.workspace_id;
+    }
+  });
+}
+
+// Direct Supabase client model insertion
+export function useAddModelDirect() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: async ({ username, workspaceId }: { username: string; workspaceId: string }) => {
+      track('models:add_clicked', { username });
+      
+      // Strip leading '@' from input
+      const cleanUsername = username.replace(/^@/, '');
+      
+      // Insert into public.models
+      const { data, error } = await supabase
+        .from('models')
+        .insert({
+          username: cleanUsername,
+          workspace_id: workspaceId,
+          status: 'pending'
+        })
+        .select()
+        .single();
+      
+      if (error) {
+        track('models:add_error', { error: error.message });
+        throw error;
+      }
+      
+      track('models:add_ok', { username: cleanUsername, modelId: data.id });
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['models'] });
+    }
+  });
+}
+
 export function useAddModel() {
   const queryClient = useQueryClient();
   
