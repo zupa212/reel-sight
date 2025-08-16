@@ -1,6 +1,6 @@
-// Configuration for public testing mode
-export const CONFIG = {
-  // Supabase URLs (hardcoded as VITE_* vars not supported)
+// App Configuration - TEMPORARY hardcoded values for public testing
+export const APP_CONFIG = {
+  // Supabase Configuration
   SUPABASE_URL: "https://gmhirmoqzuipceblfzfe.supabase.co",
   SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtaGlybW9xenVpcGNlYmxmemZlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTUzMDMwMTUsImV4cCI6MjA3MDg3OTAxNX0.UXGNnX0BIGXoAjhdXOdNA2CMuRQATQA-UBz-i27Ude4",
   
@@ -10,21 +10,25 @@ export const CONFIG = {
   
   // Default workspace for public testing
   // TODO: Replace with actual UUID of "Default Workspace" row
-  DEFAULT_WORKSPACE_ID: "00000000-0000-0000-0000-000000000000", // Placeholder - needs real UUID
+  DEFAULT_WORKSPACE_ID: "00000000-0000-0000-0000-000000000000", // PASTE THE UUID YOU CREATED FOR 'default'
   
-  // Public testing mode (no auth required)
-  PUBLIC_TESTING_MODE: true,
-};
+  // Authentication disabled for public testing
+  AUTH_ENABLED: false,
+} as const;
 
-// Helper to get default workspace ID with fallback
+// Helper functions
 export const getDefaultWorkspaceId = (): string | null => {
-  if (!CONFIG.DEFAULT_WORKSPACE_ID || CONFIG.DEFAULT_WORKSPACE_ID === "00000000-0000-0000-0000-000000000000") {
+  if (!APP_CONFIG.DEFAULT_WORKSPACE_ID || APP_CONFIG.DEFAULT_WORKSPACE_ID === "00000000-0000-0000-0000-000000000000") {
     return null;
   }
-  return CONFIG.DEFAULT_WORKSPACE_ID;
+  return APP_CONFIG.DEFAULT_WORKSPACE_ID;
 };
 
-// Check if workspace is configured
 export const isWorkspaceConfigured = (): boolean => {
   return getDefaultWorkspaceId() !== null;
+};
+
+export const getMaskedAnonKey = (): string => {
+  const key = APP_CONFIG.SUPABASE_ANON_KEY;
+  return key.substring(0, 20) + "..." + key.substring(key.length - 10);
 };

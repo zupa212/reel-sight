@@ -1,5 +1,5 @@
 import { track } from "./track";
-import { CONFIG } from "./config";
+import { APP_CONFIG } from "./config";
 
 export interface ActionOptions {
   okToast?: string;
@@ -20,7 +20,7 @@ export async function callEdge<T = any>(
     });
 
     // Use configured edge function URLs
-    const fullUrl = url.startsWith('http') ? url : `${CONFIG.SUPABASE_URL}/functions/v1/${url}`;
+    const fullUrl = url.startsWith('http') ? url : `${APP_CONFIG.SUPABASE_URL}/functions/v1/${url}`;
 
     const response = await fetch(fullUrl, {
       method: "POST",

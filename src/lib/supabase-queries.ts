@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { track } from './track';
-import { getDefaultWorkspaceId, CONFIG } from './config';
+import { getDefaultWorkspaceId, APP_CONFIG } from './config';
 
 // Models queries
 export function useModels() {
@@ -33,7 +33,7 @@ export function useCurrentWorkspace() {
       track('query:current_workspace_fetch_start');
       
       // In public testing mode, always use default workspace
-      if (CONFIG.PUBLIC_TESTING_MODE) {
+      if (!APP_CONFIG.AUTH_ENABLED) {
         const defaultWorkspaceId = getDefaultWorkspaceId();
         
         if (!defaultWorkspaceId) {
@@ -123,7 +123,7 @@ export function useAddModel() {
       const cleanUsername = username.replace(/^@/, '');
       
       // In public testing mode, use direct insert instead of RPC
-      if (CONFIG.PUBLIC_TESTING_MODE) {
+      if (!APP_CONFIG.AUTH_ENABLED) {
         const defaultWorkspaceId = getDefaultWorkspaceId();
         if (!defaultWorkspaceId) {
           throw new Error('Default workspace not configured');
