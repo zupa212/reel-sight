@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { track } from './track';
+import { getDefaultWorkspaceId, CONFIG } from './config';
 
 // Models queries
 export function useModels() {
@@ -24,13 +25,27 @@ export function useModels() {
   });
 }
 
-// Get current user's workspace ID
+// Get current workspace (use default workspace for public testing)
 export function useCurrentWorkspace() {
   return useQuery({
     queryKey: ['current-workspace'],
     queryFn: async () => {
       track('query:current_workspace_fetch_start');
       
+      // In public testing mode, always use default workspace
+      if (CONFIG.PUBLIC_TESTING_MODE) {
+        const defaultWorkspaceId = getDefaultWorkspaceId();
+        
+        if (!defaultWorkspaceId) {
+          track('query:current_workspace_fetch_error', { error: 'No default workspace configured' });
+          throw new Error('Default workspace not configured');
+        }
+        
+        track('query:current_workspace_fetch_ok', { workspaceId: defaultWorkspaceId });
+        return defaultWorkspaceId;
+      }
+      
+      // Legacy auth-based workspace lookup (commented out for public testing)
       const { data: user, error: userError } = await supabase.auth.getUser();
       if (userError || !user.user) {
         throw new Error('User not authenticated');
@@ -54,23 +69,29 @@ export function useCurrentWorkspace() {
   });
 }
 
-// Direct Supabase client model insertion
+// Add model directly to database (public testing mode)
 export function useAddModelDirect() {
   const queryClient = useQueryClient();
   
   return useMutation({
-    mutationFn: async ({ username, workspaceId }: { username: string; workspaceId: string }) => {
+    mutationFn: async ({ username, workspaceId }: { username: string; workspaceId?: string }) => {
       track('models:add_clicked', { username });
       
       // Strip leading '@' from input
       const cleanUsername = username.replace(/^@/, '');
+      
+      // Use default workspace if not provided
+      const finalWorkspaceId = workspaceId || getDefaultWorkspaceId();
+      if (!finalWorkspaceId) {
+        throw new Error('Default workspace not configured');
+      }
       
       // Insert into public.models
       const { data, error } = await supabase
         .from('models')
         .insert({
           username: cleanUsername,
-          workspace_id: workspaceId,
+          workspace_id: finalWorkspaceId,
           status: 'pending'
         })
         .select()
@@ -90,6 +111,7 @@ export function useAddModelDirect() {
   });
 }
 
+// Add model using RPC function (fallback for auth-based systems)
 export function useAddModel() {
   const queryClient = useQueryClient();
   
@@ -100,7 +122,34 @@ export function useAddModel() {
       // Clean username (remove @ if present)
       const cleanUsername = username.replace(/^@/, '');
       
-      // Use the add_model RPC function which handles workspace creation automatically
+      // In public testing mode, use direct insert instead of RPC
+      if (CONFIG.PUBLIC_TESTING_MODE) {
+        const defaultWorkspaceId = getDefaultWorkspaceId();
+        if (!defaultWorkspaceId) {
+          throw new Error('Default workspace not configured');
+        }
+
+        const { data, error } = await supabase
+          .from('models')
+          .insert({
+            username: cleanUsername,
+            display_name: displayName || null,
+            workspace_id: defaultWorkspaceId,
+            status: 'pending'
+          })
+          .select()
+          .single();
+
+        if (error) {
+          track('mutation:add_model_error', { error: error.message });
+          throw error;
+        }
+        
+        track('mutation:add_model_ok', { username: cleanUsername, modelId: data.id });
+        return data.id;
+      }
+      
+      // Legacy RPC call (for auth-based systems)
       const { data, error } = await supabase.rpc('add_model', {
         username_param: cleanUsername,
         display_name_param: displayName || null
