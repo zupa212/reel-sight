@@ -104,52 +104,66 @@ export default function Models() {
     }
   };
 
-  const handleEnableModel = async (modelId: string, modelUsername: string) => {
-    track('models:enable_clicked', { modelId });
-    setEnablingModels(prev => new Set(prev).add(modelId));
-    setBackfillingModels(prev => new Set(prev).add(modelId));
-    
-    try {
-      const result = await callEdge(
-        "https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/enable_model",
-        { modelId }
-      );
+  const handleToggleModel = async (modelId: string, modelUsername: string, currentStatus: boolean) => {
+    if (!currentStatus) {
+      // Enabling the model
+      track('models:enable_clicked', { modelId });
+      setEnablingModels(prev => new Set(prev).add(modelId));
+      setBackfillingModels(prev => new Set(prev).add(modelId));
       
-      if (result.ok) {
-        toast({
-          title: "Backfill started",
-          description: `Scraping has been enabled for @${modelUsername}. Backfill is now in progress.`
+      try {
+        const result = await callEdge(
+          "https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/enable_model",
+          { modelId }
+        );
+        
+        if (result.ok) {
+          toast({
+            title: "Backfill started",
+            description: `Scraping enabled for @${modelUsername}. Backfill is in progress.`
+          });
+          track('models:enable_ok', { modelId });
+        } else {
+          throw new Error(result.error);
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        track('models:enable_error', { modelId, error: errorMessage });
+        
+        // Revert optimistic update would happen here via React Query invalidation
+        setBackfillingModels(prev => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
         });
-        track('models:enable_success', { modelId });
-      } else {
-        throw new Error(result.error);
+        
+        toast({
+          variant: "destructive",
+          title: "Failed to enable model",
+          description: errorMessage
+        });
+      } finally {
+        setEnablingModels(prev => {
+          const next = new Set(prev);
+          next.delete(modelId);
+          return next;
+        });
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      track('models:enable_failed', { modelId, error: errorMessage });
-      
-      toast({
-        variant: "destructive",
-        title: "Failed to enable model",
-        description: errorMessage
-      });
-    } finally {
-      setEnablingModels(prev => {
-        const next = new Set(prev);
-        next.delete(modelId);
-        return next;
-      });
     }
   };
 
-  // Check if model has reels and backfill is completed
-  const hasReels = (modelId: string) => {
+  // Check if model should stop showing backfilling chip
+  const shouldShowBackfilling = (modelId: string) => {
     const model = models?.find(m => m.id === modelId);
-    return model?.backfill_completed && (reelsCount.get(modelId) || 0) > 0;
+    const hasCompletedBackfill = model?.backfill_completed;
+    const hasAnyReels = (reelsCount.get(modelId) || 0) > 0;
+    
+    // Show backfilling if model is enabled but hasn't completed backfill AND has no reels yet
+    return model?.status === 'enabled' && (!hasCompletedBackfill || !hasAnyReels);
   };
 
   const getLastScrapedText = (model: any) => {
-    if (!model.last_scraped_at) return "Never scraped";
+    if (!model.last_scraped_at) return "never";
     const timeDiff = Date.now() - new Date(model.last_scraped_at).getTime();
     const hours = Math.floor(timeDiff / (1000 * 60 * 60));
     const days = Math.floor(hours / 24);
@@ -373,34 +387,42 @@ export default function Models() {
                 {models.map((model) => (
                   <TableRow key={model.id}>
                     <TableCell>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <div className="font-medium">@{model.username}</div>
-                          {model.status === 'enabled' && !hasReels(model.id) && (
-                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
-                              Backfilling...
-                            </Badge>
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium">@{model.username}</div>
+                            {shouldShowBackfilling(model.id) && (
+                              <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                                Backfilling last 30 days...
+                              </Badge>
+                            )}
+                          </div>
+                          {model.display_name && (
+                            <div className="text-sm text-muted-foreground">{model.display_name}</div>
                           )}
-                        </div>
-                        {model.display_name && (
-                          <div className="text-sm text-muted-foreground">{model.display_name}</div>
-                        )}
-                        {model.status === 'enabled' && (
                           <div className="text-xs text-muted-foreground mt-1">
                             Last scraped: {getLastScrapedText(model)}
                           </div>
-                        )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(model.status === 'enabled')}
+                          <Switch
+                            checked={model.status === 'enabled'}
+                            onCheckedChange={(checked) => {
+                              if (checked) {
+                                handleToggleModel(model.id, model.username, false);
+                              }
+                            }}
+                            disabled={enablingModels.has(model.id)}
+                          />
+                          {enablingModels.has(model.id) && (
+                            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getStatusBadge(model.status === 'enabled')}
-                        {backfillingModels.has(model.id) && (
-                          <Badge variant="outline" className="text-xs">
-                            Backfilling last 30 days...
-                          </Badge>
-                        )}
-                      </div>
+                      {getStatusBadge(model.status === 'enabled')}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(model.last_backfill_at)}
@@ -409,22 +431,26 @@ export default function Models() {
                       {formatDate(model.last_daily_scrape_at)}
                     </TableCell>
                     <TableCell>
-                      {model.status !== 'enabled' && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleEnableModel(model.id, model.username)}
-                          disabled={enablingModels.has(model.id)}
-                        >
-                          {enablingModels.has(model.id) ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                              Enabling...
-                            </>
-                          ) : (
-                            'Enable Scraping'
-                          )}
-                        </Button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {model.status === 'enabled' ? (
+                          <Badge className="bg-success/10 text-success">Active</Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            onClick={() => handleToggleModel(model.id, model.username, false)}
+                            disabled={enablingModels.has(model.id)}
+                          >
+                            {enablingModels.has(model.id) ? (
+                              <>
+                                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                                Enabling...
+                              </>
+                            ) : (
+                              'Enable'
+                            )}
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
