@@ -110,6 +110,15 @@ serve(async (req) => {
       last_message: `Started ${successfulRuns} runs for ${models.length} models in ${chunks.length} chunks, ${errorCount} errors`
     });
 
+    // Refresh materialized views after scheduling scrapes
+    console.log("Refreshing materialized views...");
+    try {
+      await supabase.rpc('refresh_materialized_views');
+      console.log("Materialized views refreshed successfully");
+    } catch (refreshError) {
+      console.error("Error refreshing materialized views:", refreshError);
+    }
+
     // Log completion
     await supabase.from("event_logs").insert({
       event: "cron:schedule_scrape_reels_completed",

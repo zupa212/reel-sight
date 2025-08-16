@@ -68,6 +68,15 @@ serve(async (req) => {
       last_message: `Processed ${processedCount} webhooks, ${errorCount} errors`
     });
 
+    // Refresh materialized views after processing data
+    console.log("Refreshing materialized views...");
+    try {
+      await supabase.rpc('refresh_materialized_views');
+      console.log("Materialized views refreshed successfully");
+    } catch (refreshError) {
+      console.error("Error refreshing materialized views:", refreshError);
+    }
+
     return new Response(JSON.stringify({ 
       ok: true, 
       processedCount, 
