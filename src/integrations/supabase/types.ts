@@ -388,6 +388,10 @@ export type Database = {
         Args: { user_id: string; workspace_id: string }
         Returns: boolean
       }
+      refresh_materialized_views: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       user_in_workspace: {
         Args: { target_workspace_id: string }
         Returns: boolean
