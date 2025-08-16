@@ -20,7 +20,7 @@ serve(async (req) => {
   }
 
   try {
-    const { modelId } = await req.json();
+    const { modelId, refresh } = await req.json();
     
     if (!modelId) {
       return new Response(JSON.stringify({ error: "modelId required" }), { 
@@ -86,21 +86,25 @@ serve(async (req) => {
 
       const webhookUrl = `${supabaseUrl}/functions/v1/apify_webhook?source=instagram&secret=${apifyWebhookSecret}`;
       
+      const apifyInput = {
+        input: {
+          username: [model.username], // Apify expects username as an array
+          resultsLimit: 100
+        },
+        webhooks: [{
+          eventTypes: ["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.ABORTED"],
+          requestUrl: webhookUrl
+        }]
+      };
+
+      console.log(`Starting Apify run for ${model.username} with input:`, JSON.stringify(apifyInput, null, 2));
+
       const runResponse = await fetch(
         `https://api.apify.com/v2/acts/apify~instagram-reel-scraper/runs?token=${apifyToken}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            input: {
-              username: model.username,
-              resultsLimit: 100
-            },
-            webhooks: [{
-              eventTypes: ["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.ABORTED"],
-              requestUrl: webhookUrl
-            }]
-          })
+          body: JSON.stringify(apifyInput)
         }
       );
 
