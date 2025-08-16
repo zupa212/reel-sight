@@ -38,7 +38,7 @@ serve(async (req) => {
     const { data: model, error: updateError } = await supabase
       .from("models")
       .update({ 
-        enabled: true,
+        status: 'enabled',
         last_backfill_at: new Date().toISOString()
       })
       .eq("id", modelId)
@@ -53,7 +53,7 @@ serve(async (req) => {
       });
     }
 
-    if (!model?.instagram_username) {
+    if (!model?.username) {
       return new Response(JSON.stringify({ error: "Model not found or missing username" }), { 
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -64,7 +64,7 @@ serve(async (req) => {
     await supabase.from("event_logs").insert({
       event: "model:enabled",
       level: "info",
-      context: { modelId, username: model.instagram_username },
+      context: { modelId, username: model.username },
       page: "/models"
     });
 
@@ -84,7 +84,7 @@ serve(async (req) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             input: {
-              username: [model.instagram_username],
+              username: [model.username],
               resultsLimit: 100
             },
             webhooks: [{
@@ -101,7 +101,7 @@ serve(async (req) => {
       }
 
       const runData = await runResponse.json();
-      console.log(`Apify run started for ${model.instagram_username}:`, runData.data.id);
+      console.log(`Apify run started for ${model.username}:`, runData.data.id);
 
       // Update model with Apify task ID
       await supabase
@@ -121,7 +121,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Model ${model.instagram_username} enabled, backfill initiated`);
+    console.log(`Model ${model.username} enabled, backfill initiated`);
 
     return new Response(JSON.stringify({ 
       ok: true, 

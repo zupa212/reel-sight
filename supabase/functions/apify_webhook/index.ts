@@ -84,7 +84,7 @@ serve(async (req) => {
             const { data: model } = await supabase
               .from("models")
               .select("*")
-              .eq("instagram_username", item.ownerUsername)
+              .eq("username", item.ownerUsername)
               .single();
 
             if (!model) {
@@ -154,6 +154,22 @@ serve(async (req) => {
             console.error(`Error processing item ${item.id}:`, itemError);
             errors++;
           }
+        }
+
+        // Update models to mark backfill as completed and update last_scraped_at
+        const uniqueModelIds = [...new Set(items.map(item => {
+          const model = models?.find(m => m.username === item.ownerUsername);
+          return model?.id;
+        }).filter(Boolean))];
+        
+        for (const modelId of uniqueModelIds) {
+          await supabase
+            .from("models")
+            .update({ 
+              last_scraped_at: new Date().toISOString(),
+              backfill_completed: true
+            })
+            .eq("id", modelId);
         }
 
         // Update cron status

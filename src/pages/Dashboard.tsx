@@ -17,22 +17,21 @@ import {
   Calendar
 } from 'lucide-react';
 import { format } from 'date-fns';
-import { useModels, useDashboardKPIs, useTopReels, useCadenceData } from '@/lib/supabase-queries';
+import { useModels, useDashboardBundle } from '@/lib/supabase-queries';
 import { track } from '@/lib/track';
 
 export default function Dashboard() {
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
   
   const { data: models } = useModels();
-  const { data: kpis, isLoading: kpisLoading } = useDashboardKPIs({ 
+  const { data: dashboardData, isLoading: dashboardLoading } = useDashboardBundle({ 
     modelIds: selectedModels.length > 0 ? selectedModels : undefined 
   });
-  const { data: topReels, isLoading: reelsLoading } = useTopReels({ 
-    modelIds: selectedModels.length > 0 ? selectedModels : undefined 
-  });
-  const { data: cadenceData, isLoading: cadenceLoading } = useCadenceData({ 
-    modelIds: selectedModels.length > 0 ? selectedModels : undefined 
-  });
+
+  // Extract data from bundle with proper typing
+  const kpis = (dashboardData as any)?.kpis;
+  const topReels = ((dashboardData as any)?.topReels as any[]) || [];
+  const cadenceData = ((dashboardData as any)?.cadence as any[]) || [];
 
   useEffect(() => {
     track('dashboard:load', { 
@@ -107,7 +106,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {kpisLoading ? '...' : formatNumber(kpis?.views7d || 0)}
+              {dashboardLoading ? '...' : formatNumber(kpis?.views7d || 0)}
             </div>
             {kpis?.momentumDown && (
               <Badge variant="destructive" className="text-xs mt-1">
@@ -126,7 +125,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {kpisLoading ? '...' : formatNumber(kpis?.views30d || 0)}
+              {dashboardLoading ? '...' : formatNumber(kpis?.views30d || 0)}
             </div>
           </CardContent>
         </Card>
@@ -140,7 +139,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {kpisLoading ? '...' : formatNumber(kpis?.avgViewsPerReel30d || 0)}
+              {dashboardLoading ? '...' : formatNumber(kpis?.avgViewsPerReel30d || 0)}
             </div>
           </CardContent>
         </Card>
@@ -173,7 +172,7 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {reelsLoading ? (
+            {dashboardLoading ? (
               <div className="space-y-3">
                 {[1, 2, 3].map(i => (
                   <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
@@ -199,18 +198,18 @@ export default function Dashboard() {
                             {reel.caption || 'No caption'}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            @{(reel as any).models?.username || 'Unknown'}
+                            @{reel.username || 'Unknown'}
                           </p>
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatNumber(reel.latestViews)}
+                        {formatNumber(reel.views)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatNumber(reel.latestLikes)}
+                        {formatNumber(reel.likes)}
                       </TableCell>
                       <TableCell className="text-right font-mono">
-                        {formatNumber(reel.latestComments)}
+                        {formatNumber(reel.comments)}
                       </TableCell>
                       <TableCell>
                         <Button 
@@ -244,7 +243,7 @@ export default function Dashboard() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {cadenceLoading ? (
+            {dashboardLoading ? (
               <div className="h-32 bg-muted animate-pulse rounded-lg" />
             ) : (
               <div className="space-y-2">

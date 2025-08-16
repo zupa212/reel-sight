@@ -22,7 +22,7 @@ serve(async (req) => {
     const { data: models, error: fetchError } = await supabase
       .from("models")
       .select("*")
-      .eq("enabled", true);
+      .eq("status", 'enabled');
 
     if (fetchError) {
       console.error("Error fetching models:", fetchError);
@@ -33,7 +33,7 @@ serve(async (req) => {
     let errorCount = 0;
 
     // Group usernames into chunks of 10 for efficient Apify runs
-    const usernames = models?.map(m => m.instagram_username).filter(Boolean) || [];
+    const usernames = models?.map(m => m.username).filter(Boolean) || [];
     const chunks = [];
     for (let i = 0; i < usernames.length; i += 10) {
       chunks.push(usernames.slice(i, i + 10));
@@ -78,7 +78,7 @@ serve(async (req) => {
 
         // Update last_daily_scrape_at for models in this chunk
         for (const username of chunk) {
-          const model = models?.find(m => m.instagram_username === username);
+          const model = models?.find(m => m.username === username);
           if (model) {
             await supabase
               .from("models")

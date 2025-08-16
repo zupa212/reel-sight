@@ -380,6 +380,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      api_dashboard_bundle: {
+        Args: { model_ids?: string[] }
+        Returns: Json
+      }
       is_workspace_member: {
         Args: { user_id: string; workspace_id: string }
         Returns: boolean

@@ -43,7 +43,7 @@ export function useAddModel() {
           username: cleanUsername,
           display_name: displayName,
           workspace_id: hardcodedWorkspaceId,
-          status: 'disabled'
+          status: 'pending'
         })
         .select()
         .single();
@@ -159,7 +159,29 @@ export function useEventLogs(limit = 100) {
   });
 }
 
-// Dashboard queries for KPIs
+// Dashboard bundle query using RPC
+export function useDashboardBundle(filters?: { modelIds?: string[] }) {
+  return useQuery({
+    queryKey: ['dashboard-bundle', filters],
+    queryFn: async () => {
+      track('query:dashboard_bundle_fetch_start', { filters });
+      
+      const { data, error } = await supabase.rpc('api_dashboard_bundle', {
+        model_ids: filters?.modelIds && filters.modelIds.length > 0 ? filters.modelIds : null
+      });
+      
+      if (error) {
+        track('query:dashboard_bundle_fetch_error', { error: error.message });
+        throw error;
+      }
+      
+      track('query:dashboard_bundle_fetch_ok');
+      return data;
+    }
+  });
+}
+
+// Legacy individual dashboard queries (keeping for backward compatibility)
 export function useDashboardKPIs(filters?: { modelIds?: string[] }) {
   return useQuery({
     queryKey: ['dashboard-kpis', filters],
@@ -177,7 +199,7 @@ export function useDashboardKPIs(filters?: { modelIds?: string[] }) {
         .from('reels')
         .select(`
           *,
-          models!inner(instagram_username, display_name),
+          models!inner(username, display_name),
           reel_metrics_daily!inner(*)
         `)
         .gte('posted_at', thirtyDaysAgo.toISOString())
@@ -265,7 +287,7 @@ export function useTopReels(filters?: { modelIds?: string[] }) {
         .from('reels')
         .select(`
           *,
-          models!inner(instagram_username, display_name),
+          models!inner(username, display_name),
           reel_metrics_daily!inner(*)
         `)
         .gte('posted_at', thirtyDaysAgo.toISOString())
