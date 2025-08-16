@@ -210,29 +210,29 @@ export default function Models() {
       track('models:fetch_reels_ok', { modelId: model.id });
       toast({
         title: "Fetching latest reels...",
-        description: `Started fetching newest reels for @${model.username}`,
+        description: `Apify run started for @${model.username}. This may take ~20 seconds.`,
       });
 
-      // TODO: Implement polling or real-time updates to detect when ingestion completes
-      // For now, we'll show the success toast after a delay
+      // Keep spinner for ~20 seconds (approx Apify run time)
       setTimeout(() => {
-        toast({
-          title: "Reels updated",
-          description: `Reels updated for @${model.username}`,
-        });
-        refetch();
         setFetchingModels(prev => {
           const next = new Set(prev);
           next.delete(model.id);
           return next;
         });
-      }, 5000);
+        
+        // Show banner about manual refresh
+        toast({
+          title: "Processing complete",
+          description: "New reels may be available — click Reload Reels to view in the Reels page.",
+        });
+      }, 20000);
 
     } catch (error) {
       track('models:fetch_reels_error', { modelId: model.id, error: String(error) });
       toast({
         title: "Could not fetch reels",
-        description: "Please try again",
+        description: error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
       setFetchingModels(prev => {
