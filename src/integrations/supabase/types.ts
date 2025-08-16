@@ -14,16 +14,293 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      models: {
+        Row: {
+          backfill_completed: boolean
+          created_at: string
+          display_name: string | null
+          id: string
+          last_scraped_at: string | null
+          status: Database["public"]["Enums"]["model_status"]
+          updated_at: string
+          username: string
+          workspace_id: string
+        }
+        Insert: {
+          backfill_completed?: boolean
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          last_scraped_at?: string | null
+          status?: Database["public"]["Enums"]["model_status"]
+          updated_at?: string
+          username: string
+          workspace_id: string
+        }
+        Update: {
+          backfill_completed?: boolean
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          last_scraped_at?: string | null
+          status?: Database["public"]["Enums"]["model_status"]
+          updated_at?: string
+          username?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "models_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          comfort_mode: boolean
+          created_at: string
+          email: string | null
+          full_name: string | null
+          high_contrast: boolean
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          comfort_mode?: boolean
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          high_contrast?: boolean
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          comfort_mode?: boolean
+          created_at?: string
+          email?: string | null
+          full_name?: string | null
+          high_contrast?: boolean
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      reel_metrics_daily: {
+        Row: {
+          comments: number | null
+          completion_rate: number | null
+          created_at: string
+          date: string
+          id: string
+          likes: number | null
+          reel_id: string
+          saves: number | null
+          shares: number | null
+          updated_at: string
+          views: number | null
+          workspace_id: string
+        }
+        Insert: {
+          comments?: number | null
+          completion_rate?: number | null
+          created_at?: string
+          date: string
+          id?: string
+          likes?: number | null
+          reel_id: string
+          saves?: number | null
+          shares?: number | null
+          updated_at?: string
+          views?: number | null
+          workspace_id: string
+        }
+        Update: {
+          comments?: number | null
+          completion_rate?: number | null
+          created_at?: string
+          date?: string
+          id?: string
+          likes?: number | null
+          reel_id?: string
+          saves?: number | null
+          shares?: number | null
+          updated_at?: string
+          views?: number | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reel_metrics_daily_reel_id_fkey"
+            columns: ["reel_id"]
+            isOneToOne: false
+            referencedRelation: "reels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reel_metrics_daily_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reels: {
+        Row: {
+          caption: string | null
+          created_at: string
+          id: string
+          instagram_id: string
+          model_id: string
+          posted_at: string
+          url: string
+          workspace_id: string
+        }
+        Insert: {
+          caption?: string | null
+          created_at?: string
+          id?: string
+          instagram_id: string
+          model_id: string
+          posted_at: string
+          url: string
+          workspace_id: string
+        }
+        Update: {
+          caption?: string | null
+          created_at?: string
+          id?: string
+          instagram_id?: string
+          model_id?: string
+          posted_at?: string
+          url?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reels_model_id_fkey"
+            columns: ["model_id"]
+            isOneToOne: false
+            referencedRelation: "models"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reels_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhooks_inbox: {
+        Row: {
+          created_at: string
+          hash: string
+          id: string
+          payload: Json
+          processed: boolean
+          processed_at: string | null
+          source: string
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          hash: string
+          id?: string
+          payload: Json
+          processed?: boolean
+          processed_at?: string | null
+          source: string
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          hash?: string
+          id?: string
+          payload?: Json
+          processed?: boolean
+          processed_at?: string | null
+          source?: string
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
+      workspace_members: {
+        Row: {
+          id: string
+          joined_at: string
+          role: Database["public"]["Enums"]["member_role"]
+          user_id: string
+          workspace_id: string
+        }
+        Insert: {
+          id?: string
+          joined_at?: string
+          role?: Database["public"]["Enums"]["member_role"]
+          user_id: string
+          workspace_id: string
+        }
+        Update: {
+          id?: string
+          joined_at?: string
+          role?: Database["public"]["Enums"]["member_role"]
+          user_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workspace_members_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      workspaces: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          slug: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          slug: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          slug?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      is_workspace_member: {
+        Args: { user_id: string; workspace_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      member_role: "owner" | "admin" | "member"
+      model_status: "enabled" | "disabled" | "pending"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +427,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      member_role: ["owner", "admin", "member"],
+      model_status: ["enabled", "disabled", "pending"],
+    },
   },
 } as const
