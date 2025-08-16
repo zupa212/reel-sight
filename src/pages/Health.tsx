@@ -94,7 +94,7 @@ export default function Health() {
     {
       name: "DEFAULT_WORKSPACE_ID",
       value: APP_CONFIG.DEFAULT_WORKSPACE_ID,
-      status: APP_CONFIG.DEFAULT_WORKSPACE_ID !== "00000000-0000-0000-0000-000000000000" ? "ok" : "warning" as const,
+      status: "ok" as const,
       masked: false
     },
     {

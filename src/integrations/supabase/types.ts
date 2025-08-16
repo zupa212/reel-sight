@@ -377,7 +377,21 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      mv_model_stats_7d: {
+        Row: {
+          model_id: string | null
+          views_7d: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reels_model_id_fkey"
+            columns: ["model_id"]
+            isOneToOne: false
+            referencedRelation: "models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       add_model: {

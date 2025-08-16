@@ -9,8 +9,7 @@ export const APP_CONFIG = {
   APIFY_WEBHOOK_URL: "https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/apify_webhook",
   
   // Default workspace for public testing
-  // TODO: Replace with actual UUID of "Default Workspace" row
-  DEFAULT_WORKSPACE_ID: "00000000-0000-0000-0000-000000000000", // PASTE THE UUID YOU CREATED FOR 'default'
+  DEFAULT_WORKSPACE_ID: "07ac503e-47b5-45a7-b13f-d0cc7ec1cec1", // Default Workspace UUID
   
   // Authentication disabled for public testing
   AUTH_ENABLED: false,
@@ -18,7 +17,7 @@ export const APP_CONFIG = {
 
 // Helper functions
 export const getDefaultWorkspaceId = (): string | null => {
-  if (!APP_CONFIG.DEFAULT_WORKSPACE_ID || APP_CONFIG.DEFAULT_WORKSPACE_ID === "00000000-0000-0000-0000-000000000000") {
+  if (!APP_CONFIG.DEFAULT_WORKSPACE_ID) {
     return null;
   }
   return APP_CONFIG.DEFAULT_WORKSPACE_ID;
