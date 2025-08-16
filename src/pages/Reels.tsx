@@ -7,8 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/components/ui/sheet';
 import { Sparkline } from '@/components/ui/sparkline';
-import { Eye, Heart, MessageCircle, Share, Bookmark, Filter, Download, RefreshCw, ExternalLink } from 'lucide-react';
+import { Eye, Heart, MessageCircle, Share, Bookmark, Filter, Download, RefreshCw, ExternalLink, Calendar, Clock } from 'lucide-react';
 import { format } from 'date-fns';
 import { useModels, useReels } from '@/lib/supabase-queries';
 import { track } from '@/lib/track';
@@ -86,6 +87,8 @@ export default function Reels() {
   const [dateRange, setDateRange] = useState<string>('30');
   const [minViews, setMinViews] = useState<number[]>([0]);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedReel, setSelectedReel] = useState<any>(null);
+  const [isPanelOpen, setIsPanelOpen] = useState(false);
   
   const { data: models } = useModels();
   const { data: reels, isLoading, error } = useReels({
@@ -114,8 +117,14 @@ export default function Reels() {
     }
   };
 
-  const handleRowOpen = (reelId: string, url: string) => {
-    track('reels:row_open', { reelId });
+  const handleRowClick = (reel: any) => {
+    track('reels:row_opened', { reelId: reel.id });
+    setSelectedReel(reel);
+    setIsPanelOpen(true);
+  };
+
+  const handleOpenInstagram = (url: string, reelId: string) => {
+    track('reels:open_link', { reelId, platform: 'instagram' });
     window.open(url, '_blank');
   };
 
@@ -317,14 +326,13 @@ export default function Reels() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Content</TableHead>
-                  <TableHead>Model</TableHead>
-                  <TableHead>Posted</TableHead>
+                  <TableHead>Thumbnail</TableHead>
+                  <TableHead>Caption</TableHead>
+                  <TableHead>Posted At</TableHead>
                   <TableHead className="text-right">Views</TableHead>
                   <TableHead className="text-right">Likes</TableHead>
                   <TableHead className="text-right">Comments</TableHead>
                   <TableHead className="text-right">7d Trend</TableHead>
-                  <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -335,39 +343,30 @@ export default function Reels() {
                   const weeklyData = reel.weeklyViews || reel.reel_metrics_daily?.map(m => m.views || 0).slice(-7) || [0, 0, 0, 0, 0, 0, latestMetrics?.views || 0];
                   
                   return (
-                    <TableRow key={reel.id} className="cursor-pointer hover:bg-muted/50">
+                    <TableRow 
+                      key={reel.id} 
+                      className="cursor-pointer hover:bg-muted/50" 
+                      onClick={() => handleRowClick(reel)}
+                    >
                       <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-12 h-12 bg-muted rounded overflow-hidden">
-                            {reel.thumbnail_url && (
-                              <img 
-                                src={reel.thumbnail_url} 
-                                alt="Reel thumbnail"
-                                className="w-full h-full object-cover"
-                              />
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium truncate">{reel.caption || 'No caption'}</p>
-                            <p className="text-sm text-muted-foreground">
-                              @{username} • {postedAt ? format(postedAt, 'MMM d, yyyy') : 'Unknown'}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Sparkline 
-                              data={weeklyData} 
-                              width={60} 
-                              height={20}
-                              className="text-primary"
+                        <div className="w-16 h-16 bg-muted rounded overflow-hidden">
+                          {reel.thumbnail_url && (
+                            <img 
+                              src={reel.thumbnail_url} 
+                              alt="Reel thumbnail"
+                              className="w-full h-full object-cover"
                             />
-                          </div>
+                          )}
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">@{username}</Badge>
+                        <div className="max-w-md">
+                          <p className="font-medium line-clamp-2">{reel.caption || 'No caption'}</p>
+                          <p className="text-sm text-muted-foreground mt-1">@{username}</p>
+                        </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {postedAt ? format(postedAt, 'MMM d, yyyy') : 'Unknown'}
+                        {postedAt ? format(postedAt, 'MMM d, yyyy HH:mm') : 'Unknown'}
                       </TableCell>
                       <TableCell className="text-right font-mono">
                         {formatNumber(latestMetrics?.views || 0)}
@@ -379,16 +378,12 @@ export default function Reels() {
                         {formatNumber(latestMetrics?.comments || 0)}
                       </TableCell>
                       <TableCell className="text-right">
-                        {/* Sparkline already included in content cell */}
-                      </TableCell>
-                      <TableCell>
-                        <Button 
-                          size="sm" 
-                          variant="ghost"
-                          onClick={() => handleRowOpen(reel.id, reel.url)}
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </Button>
+                        <Sparkline 
+                          data={weeklyData} 
+                          width={80} 
+                          height={24}
+                          className="text-primary"
+                        />
                       </TableCell>
                     </TableRow>
                   );
@@ -398,6 +393,137 @@ export default function Reels() {
           )}
         </CardContent>
       </Card>
+
+      {/* Side Panel */}
+      <Sheet open={isPanelOpen} onOpenChange={setIsPanelOpen}>
+        <SheetContent className="w-[400px] sm:w-[540px]">
+          {selectedReel && (
+            <>
+              <SheetHeader>
+                <SheetTitle>Reel Details</SheetTitle>
+                <SheetDescription>
+                  View detailed analytics and information for this reel
+                </SheetDescription>
+              </SheetHeader>
+              
+              <div className="mt-6 space-y-6">
+                {/* Thumbnail */}
+                <div className="aspect-[9/16] w-full bg-muted rounded-lg overflow-hidden">
+                  {selectedReel.thumbnail_url && (
+                    <img 
+                      src={selectedReel.thumbnail_url} 
+                      alt="Reel thumbnail"
+                      className="w-full h-full object-cover"
+                    />
+                  )}
+                </div>
+
+                {/* Caption */}
+                <div>
+                  <h3 className="font-semibold mb-2">Caption</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {selectedReel.caption || 'No caption available'}
+                  </p>
+                </div>
+
+                {/* Creator Info */}
+                <div>
+                  <h3 className="font-semibold mb-2">Creator</h3>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary">
+                      @{selectedReel.models?.username || selectedReel.modelUsername?.replace('@', '')}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Post Date */}
+                <div>
+                  <h3 className="font-semibold mb-2">Posted</h3>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Calendar className="w-4 h-4" />
+                    {selectedReel.posted_at || selectedReel.postedAt ? 
+                      format(new Date(selectedReel.posted_at || selectedReel.postedAt), 'MMMM d, yyyy') : 
+                      'Unknown date'
+                    }
+                  </div>
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                    <Clock className="w-4 h-4" />
+                    {selectedReel.posted_at || selectedReel.postedAt ? 
+                      format(new Date(selectedReel.posted_at || selectedReel.postedAt), 'h:mm a') : 
+                      'Unknown time'
+                    }
+                  </div>
+                </div>
+
+                {/* Metrics */}
+                <div>
+                  <h3 className="font-semibold mb-3">Performance</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="flex items-center gap-2 p-3 bg-gradient-card rounded-lg">
+                      <Eye className="w-4 h-4 text-primary" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Views</p>
+                        <p className="font-semibold">
+                          {formatNumber((selectedReel.reel_metrics_daily?.[0] || selectedReel.metrics)?.views || 0)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 bg-gradient-card rounded-lg">
+                      <Heart className="w-4 h-4 text-primary" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Likes</p>
+                        <p className="font-semibold">
+                          {formatNumber((selectedReel.reel_metrics_daily?.[0] || selectedReel.metrics)?.likes || 0)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 bg-gradient-card rounded-lg">
+                      <MessageCircle className="w-4 h-4 text-primary" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Comments</p>
+                        <p className="font-semibold">
+                          {formatNumber((selectedReel.reel_metrics_daily?.[0] || selectedReel.metrics)?.comments || 0)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 bg-gradient-card rounded-lg">
+                      <Share className="w-4 h-4 text-primary" />
+                      <div>
+                        <p className="text-sm text-muted-foreground">Engagement</p>
+                        <p className="font-semibold">
+                          {calculateEngagement(selectedReel.reel_metrics_daily?.[0] || selectedReel.metrics)}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 7-Day Trend */}
+                <div>
+                  <h3 className="font-semibold mb-3">7-Day View Trend</h3>
+                  <div className="p-4 bg-gradient-card rounded-lg">
+                    <Sparkline 
+                      data={selectedReel.weeklyViews || selectedReel.reel_metrics_daily?.map(m => m.views || 0).slice(-7) || [0]} 
+                      width={200} 
+                      height={60}
+                      className="text-primary"
+                    />
+                  </div>
+                </div>
+
+                {/* Action Button */}
+                <Button 
+                  className="w-full" 
+                  onClick={() => handleOpenInstagram(selectedReel.url, selectedReel.id)}
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Open on Instagram
+                </Button>
+              </div>
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }
