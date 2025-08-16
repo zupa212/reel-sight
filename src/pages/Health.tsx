@@ -147,8 +147,10 @@ export default function Health() {
     ]
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
+  const getStatusIcon = (status: string | boolean) => {
+    const normalizedStatus = typeof status === 'boolean' ? (status ? 'success' : 'error') : status;
+    
+    switch (normalizedStatus) {
       case 'healthy':
       case 'success':
         return <CheckCircle className="w-4 h-4 text-success" />;
@@ -168,13 +170,11 @@ export default function Health() {
     switch (normalizedStatus) {
       case 'healthy':
       case 'success':
-      case true:
         return <Badge className="bg-success/10 text-success border-success/20">healthy</Badge>;
       case 'warning':
         return <Badge className="bg-warning/10 text-warning border-warning/20">warning</Badge>;
       case 'error':
       case 'failed':
-      case false:
         return <Badge className="bg-destructive/10 text-destructive border-destructive/20">error</Badge>;
       default:
         return <Badge variant="secondary">unknown</Badge>;
