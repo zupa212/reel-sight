@@ -211,6 +211,13 @@ export type Database = {
             foreignKeyName: "reel_metrics_daily_reel_id_fkey"
             columns: ["reel_id"]
             isOneToOne: false
+            referencedRelation: "mv_top_reels_30d"
+            referencedColumns: ["reel_id"]
+          },
+          {
+            foreignKeyName: "reel_metrics_daily_reel_id_fkey"
+            columns: ["reel_id"]
+            isOneToOne: false
             referencedRelation: "reels"
             referencedColumns: ["id"]
           },
@@ -377,7 +384,83 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      mv_model_stats_30d: {
+        Row: {
+          instagram_username: string | null
+          model_id: string | null
+          reels_count: number | null
+          total_comments: number | null
+          total_likes: number | null
+          total_views: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reels_model_id_fkey"
+            columns: ["model_id"]
+            isOneToOne: false
+            referencedRelation: "models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mv_model_stats_7d: {
+        Row: {
+          model_id: string | null
+          reels_count: number | null
+          total_comments: number | null
+          total_likes: number | null
+          total_views: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reels_model_id_fkey"
+            columns: ["model_id"]
+            isOneToOne: false
+            referencedRelation: "models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mv_reels_cadence_30d: {
+        Row: {
+          model_id: string | null
+          post_date: string | null
+          reels_count: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reels_model_id_fkey"
+            columns: ["model_id"]
+            isOneToOne: false
+            referencedRelation: "models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mv_top_reels_30d: {
+        Row: {
+          caption: string | null
+          display_name: string | null
+          model_id: string | null
+          posted_at: string | null
+          reel_id: string | null
+          thumbnail_url: string | null
+          total_comments: number | null
+          total_likes: number | null
+          total_views: number | null
+          url: string | null
+          username: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reels_model_id_fkey"
+            columns: ["model_id"]
+            isOneToOne: false
+            referencedRelation: "models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       api_dashboard_bundle: {
