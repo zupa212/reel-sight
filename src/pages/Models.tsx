@@ -47,6 +47,7 @@ export default function Models() {
   const [newModelUsername, setNewModelUsername] = useState('');
   const [newModelDisplayName, setNewModelDisplayName] = useState('');
   const [enablingModels, setEnablingModels] = useState<Set<string>>(new Set());
+  const [backfillingModels, setBackfillingModels] = useState<Set<string>>(new Set());
   
   const { toast } = useToast();
   const { data: models, isLoading, error } = useModels();
@@ -55,11 +56,14 @@ export default function Models() {
   const handleAddModel = async () => {
     if (!newModelUsername.trim()) return;
     
-    track('models:add_clicked', { username: newModelUsername });
+    // Clean username (remove @ if present)
+    const cleanUsername = newModelUsername.replace(/^@/, '');
+    
+    track('models:add_clicked', { username: cleanUsername });
     
     try {
       const validatedData = addModelSchema.parse({
-        username: newModelUsername,
+        username: cleanUsername,
         displayName: newModelDisplayName || undefined
       });
       
@@ -70,7 +74,7 @@ export default function Models() {
       
       toast({
         title: "Model added",
-        description: `${validatedData.username} has been added to your tracking list.`
+        description: `@${validatedData.username} has been added to your tracking list.`
       });
       
       setNewModelUsername('');
@@ -93,6 +97,7 @@ export default function Models() {
   const handleEnableModel = async (modelId: string, modelUsername: string) => {
     track('models:enable_clicked', { modelId });
     setEnablingModels(prev => new Set(prev).add(modelId));
+    setBackfillingModels(prev => new Set(prev).add(modelId));
     
     try {
       const result = await callEdge(
@@ -127,16 +132,31 @@ export default function Models() {
     }
   };
 
-  const getStatusBadge = (status: ModelStatus) => {
-    switch (status) {
-      case 'enabled':
-        return <Badge className="bg-success/10 text-success hover:bg-success/20">Enabled</Badge>;
-      case 'disabled':
-        return <Badge variant="secondary">Disabled</Badge>;
-      case 'pending':
-        return <Badge className="bg-warning/10 text-warning hover:bg-warning/20">Pending</Badge>;
-      default:
-        return <Badge variant="outline">Unknown</Badge>;
+  // Check if model has reels to stop showing backfilling chip
+  const hasReels = (modelId: string) => {
+    // This would need to be implemented with actual reel data
+    // For now, we'll clear backfilling after 30 seconds as demo
+    setTimeout(() => {
+      setBackfillingModels(prev => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
+    }, 30000);
+    return false;
+  };
+
+  const getLastScrapedText = (modelId: string) => {
+    // This would check latest reel posted_at for this model
+    // For now, return placeholder
+    return "Last scraped: never";
+  };
+
+  const getStatusBadge = (enabled: boolean) => {
+    if (enabled) {
+      return <Badge className="bg-success/10 text-success hover:bg-success/20">Enabled</Badge>;
+    } else {
+      return <Badge variant="secondary">Disabled</Badge>;
     }
   };
 
@@ -205,7 +225,7 @@ export default function Models() {
                 <Label htmlFor="username">Instagram Username</Label>
                 <Input
                   id="username"
-                  placeholder="e.g., model_sarah"
+                  placeholder="e.g., @model_sarah or model_sarah"
                   value={newModelUsername}
                   onChange={(e) => setNewModelUsername(e.target.value)}
                 />
@@ -351,10 +371,20 @@ export default function Models() {
                         {model.display_name && (
                           <div className="text-sm text-muted-foreground">{model.display_name}</div>
                         )}
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {getLastScrapedText(model.id)}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      {getStatusBadge(model.status)}
+                      <div className="flex items-center gap-2">
+                        {getStatusBadge(model.status === 'enabled')}
+                        {backfillingModels.has(model.id) && (
+                          <Badge variant="outline" className="text-xs">
+                            Backfilling last 30 days...
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(model.last_backfill_at)}
@@ -363,10 +393,10 @@ export default function Models() {
                       {formatDate(model.last_daily_scrape_at)}
                     </TableCell>
                     <TableCell>
-                      {model.status !== 'enabled' && (
+                      {!model.enabled && (
                         <Button
                           size="sm"
-                          onClick={() => handleEnableModel(model.id, model.username)}
+                          onClick={() => handleEnableModel(model.id, model.instagram_username)}
                           disabled={enablingModels.has(model.id)}
                         >
                           {enablingModels.has(model.id) ? (

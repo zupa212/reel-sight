@@ -31,16 +31,19 @@ export function useAddModel() {
     mutationFn: async ({ username, displayName }: { username: string; displayName?: string }) => {
       track('mutation:add_model_start', { username });
       
+      // Clean username (remove @ if present)
+      const cleanUsername = username.replace(/^@/, '');
+      
       // For now, use a hardcoded workspace_id since auth is disabled
       const hardcodedWorkspaceId = '00000000-0000-0000-0000-000000000000';
       
       const { data, error } = await supabase
         .from('models')
         .insert({
-          username,
+          username: cleanUsername,
           display_name: displayName,
           workspace_id: hardcodedWorkspaceId,
-          status: 'pending'
+          status: 'disabled'
         })
         .select()
         .single();
@@ -152,6 +155,198 @@ export function useEventLogs(limit = 100) {
       
       track('query:event_logs_fetch_ok', { count: data?.length || 0 });
       return data;
+    }
+  });
+}
+
+// Dashboard queries for KPIs
+export function useDashboardKPIs(filters?: { modelIds?: string[] }) {
+  return useQuery({
+    queryKey: ['dashboard-kpis', filters],
+    queryFn: async () => {
+      track('query:dashboard_kpis_fetch_start', { filters });
+      
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      // Get reels with metrics for last 30 days
+      let reelsQuery = supabase
+        .from('reels')
+        .select(`
+          *,
+          models!inner(instagram_username, display_name),
+          reel_metrics_daily!inner(*)
+        `)
+        .gte('posted_at', thirtyDaysAgo.toISOString())
+        .order('posted_at', { ascending: false });
+      
+      if (filters?.modelIds && filters.modelIds.length > 0) {
+        reelsQuery = reelsQuery.in('model_id', filters.modelIds);
+      }
+      
+      const { data: reelsData, error } = await reelsQuery;
+      
+      if (error) {
+        track('query:dashboard_kpis_fetch_error', { error: error.message });
+        throw error;
+      }
+      
+      // Calculate KPIs
+      const now = new Date();
+      const reels7d = reelsData?.filter(r => new Date(r.posted_at) >= sevenDaysAgo) || [];
+      const reels30d = reelsData || [];
+      
+      const views7d = reels7d.reduce((sum, reel) => {
+        const latestMetrics = reel.reel_metrics_daily?.[0];
+        return sum + (latestMetrics?.views || 0);
+      }, 0);
+      
+      const views30d = reels30d.reduce((sum, reel) => {
+        const latestMetrics = reel.reel_metrics_daily?.[0];
+        return sum + (latestMetrics?.views || 0);
+      }, 0);
+      
+      const likes30d = reels30d.reduce((sum, reel) => {
+        const latestMetrics = reel.reel_metrics_daily?.[0];
+        return sum + (latestMetrics?.likes || 0);
+      }, 0);
+      
+      const comments30d = reels30d.reduce((sum, reel) => {
+        const latestMetrics = reel.reel_metrics_daily?.[0];
+        return sum + (latestMetrics?.comments || 0);
+      }, 0);
+      
+      // Calculate previous 7 days for momentum
+      const prevSevenDaysAgo = new Date();
+      prevSevenDaysAgo.setDate(prevSevenDaysAgo.getDate() - 14);
+      const reelsPrev7d = reelsData?.filter(r => {
+        const postedAt = new Date(r.posted_at);
+        return postedAt >= prevSevenDaysAgo && postedAt < sevenDaysAgo;
+      }) || [];
+      
+      const viewsPrev7d = reelsPrev7d.reduce((sum, reel) => {
+        const latestMetrics = reel.reel_metrics_daily?.[0];
+        return sum + (latestMetrics?.views || 0);
+      }, 0);
+      
+      const avgViewsPerReel30d = reels30d.length > 0 ? views30d / reels30d.length : 0;
+      const engagementPer1k30d = views30d > 0 ? ((likes30d + comments30d) / views30d) * 1000 : 0;
+      const momentumDown = views7d < viewsPrev7d * 0.75; // 25%+ drop
+      
+      const kpis = {
+        views7d,
+        views30d,
+        avgViewsPerReel30d,
+        engagementPer1k30d,
+        momentumDown,
+        reelsCount30d: reels30d.length
+      };
+      
+      track('query:dashboard_kpis_fetch_ok', kpis);
+      return kpis;
+    }
+  });
+}
+
+// Top reels for dashboard
+export function useTopReels(filters?: { modelIds?: string[] }) {
+  return useQuery({
+    queryKey: ['top-reels', filters],
+    queryFn: async () => {
+      track('query:top_reels_fetch_start', { filters });
+      
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      let query = supabase
+        .from('reels')
+        .select(`
+          *,
+          models!inner(instagram_username, display_name),
+          reel_metrics_daily!inner(*)
+        `)
+        .gte('posted_at', thirtyDaysAgo.toISOString())
+        .order('posted_at', { ascending: false })
+        .limit(10);
+        
+      if (filters?.modelIds && filters.modelIds.length > 0) {
+        query = query.in('model_id', filters.modelIds);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        track('query:top_reels_fetch_error', { error: error.message });
+        throw error;
+      }
+      
+      // Sort by views and take top 5
+      const sortedReels = (data || [])
+        .map(reel => ({
+          ...reel,
+          latestViews: reel.reel_metrics_daily?.[0]?.views || 0,
+          latestLikes: reel.reel_metrics_daily?.[0]?.likes || 0,
+          latestComments: reel.reel_metrics_daily?.[0]?.comments || 0
+        }))
+        .sort((a, b) => b.latestViews - a.latestViews)
+        .slice(0, 5);
+      
+      track('query:top_reels_fetch_ok', { count: sortedReels.length });
+      return sortedReels;
+    }
+  });
+}
+
+// Cadence data for dashboard
+export function useCadenceData(filters?: { modelIds?: string[] }) {
+  return useQuery({
+    queryKey: ['cadence-data', filters],
+    queryFn: async () => {
+      track('query:cadence_fetch_start', { filters });
+      
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      let query = supabase
+        .from('reels')
+        .select('posted_at, model_id')
+        .gte('posted_at', thirtyDaysAgo.toISOString());
+        
+      if (filters?.modelIds && filters.modelIds.length > 0) {
+        query = query.in('model_id', filters.modelIds);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) {
+        track('query:cadence_fetch_error', { error: error.message });
+        throw error;
+      }
+      
+      // Group by day
+      const cadenceMap: Record<string, number> = {};
+      data?.forEach(reel => {
+        const day = new Date(reel.posted_at).toISOString().split('T')[0];
+        cadenceMap[day] = (cadenceMap[day] || 0) + 1;
+      });
+      
+      // Convert to array format for last 30 days
+      const cadenceData = [];
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const day = date.toISOString().split('T')[0];
+        cadenceData.push({
+          day,
+          reels: cadenceMap[day] || 0
+        });
+      }
+      
+      track('query:cadence_fetch_ok', { daysWithData: Object.keys(cadenceMap).length });
+      return cadenceData;
     }
   });
 }

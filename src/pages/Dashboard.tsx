@@ -1,53 +1,66 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { BarChart3, Users, PlayCircle, TrendingUp, Eye, Heart, MessageCircle, Share } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { 
+  Eye, 
+  TrendingUp, 
+  BarChart3, 
+  AlertTriangle,
+  ExternalLink,
+  Users,
+  PlayCircle,
+  Heart,
+  MessageCircle,
+  Calendar
+} from 'lucide-react';
+import { format } from 'date-fns';
+import { useModels, useDashboardKPIs, useTopReels, useCadenceData } from '@/lib/supabase-queries';
+import { track } from '@/lib/track';
 
 export default function Dashboard() {
-  // Mock data for demo purposes
-  const stats = [
-    {
-      title: 'Total Models',
-      value: '12',
-      change: '+2.5%',
-      changeType: 'positive' as const,
-      icon: Users
-    },
-    {
-      title: 'Total Reels',
-      value: '1,248',
-      change: '+12.3%', 
-      changeType: 'positive' as const,
-      icon: PlayCircle
-    },
-    {
-      title: 'Total Views',
-      value: '2.4M',
-      change: '+8.7%',
-      changeType: 'positive' as const,
-      icon: Eye
-    },
-    {
-      title: 'Engagement Rate',
-      value: '4.8%',
-      change: '-0.3%',
-      changeType: 'negative' as const,
-      icon: TrendingUp
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
+  
+  const { data: models } = useModels();
+  const { data: kpis, isLoading: kpisLoading } = useDashboardKPIs({ 
+    modelIds: selectedModels.length > 0 ? selectedModels : undefined 
+  });
+  const { data: topReels, isLoading: reelsLoading } = useTopReels({ 
+    modelIds: selectedModels.length > 0 ? selectedModels : undefined 
+  });
+  const { data: cadenceData, isLoading: cadenceLoading } = useCadenceData({ 
+    modelIds: selectedModels.length > 0 ? selectedModels : undefined 
+  });
+
+  useEffect(() => {
+    track('dashboard:load', { 
+      selectedModels: selectedModels.length,
+      totalModels: models?.length || 0 
+    });
+  }, [selectedModels, models]);
+
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
+    return Math.round(num).toString();
+  };
+
+  const handleModelFilterChange = (value: string) => {
+    if (value === 'all') {
+      setSelectedModels([]);
+      track('dashboard:filter_changed', { type: 'model', value: 'all' });
+    } else {
+      const modelIds = models?.filter(m => 
+        m.username === value
+      ).map(m => m.id) || [];
+      setSelectedModels(modelIds);
+      track('dashboard:filter_changed', { type: 'model', value, modelIds });
     }
-  ];
+  };
 
-  const topModels = [
-    { name: '@model_sarah', reels: 45, views: '284K', engagement: '5.2%' },
-    { name: '@fitness_emma', reels: 38, views: '192K', engagement: '4.8%' },
-    { name: '@lifestyle_alex', reels: 42, views: '156K', engagement: '4.1%' },
-    { name: '@beauty_mia', reels: 35, views: '134K', engagement: '3.9%' },
-  ];
-
-  const recentActivity = [
-    { model: '@model_sarah', action: 'Posted new reel', time: '2 hours ago', metric: '+1.2K views' },
-    { model: '@fitness_emma', action: 'Reached milestone', time: '4 hours ago', metric: '100K views' },
-    { model: '@lifestyle_alex', action: 'High engagement reel', time: '6 hours ago', metric: '8.3% rate' },
-    { model: '@beauty_mia', action: 'Posted new reel', time: '8 hours ago', metric: '+987 views' },
-  ];
+  const maxCadence = Math.max(...(cadenceData?.map(d => d.reels) || [0]));
 
   return (
     <div className="p-6 space-y-6">
@@ -56,129 +69,208 @@ export default function Dashboard() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground">
-            Overview of your Instagram Reels performance
+            Instagram Reels performance overview and analytics
           </p>
+        </div>
+        
+        {/* Model Filter */}
+        <div className="w-64">
+          <Select value={selectedModels.length === 0 ? 'all' : models?.find(m => selectedModels.includes(m.id))?.instagram_username || 'all'} onValueChange={handleModelFilterChange}>
+            <SelectTrigger>
+              <SelectValue placeholder="Filter by model" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Models</SelectItem>
+              {models?.map(model => (
+                <SelectItem key={model.id} value={model.instagram_username}>
+                  @{model.username}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.title} className="bg-gradient-card border-0 shadow-md">
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.title}
-              </CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stat.value}</div>
-              <p className={`text-xs ${
-                stat.changeType === 'positive' 
-                  ? 'text-success' 
-                  : 'text-destructive'
-              }`}>
-                {stat.change} from last month
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+      {/* KPI Cards */}
+      <div className="grid gap-6 md:grid-cols-4">
+        <Card className="bg-gradient-card border-0 shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Views (7d)
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              <Eye className="h-4 w-4 text-muted-foreground" />
+              {kpis?.momentumDown && (
+                <AlertTriangle className="h-4 w-4 text-destructive" />
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {kpisLoading ? '...' : formatNumber(kpis?.views7d || 0)}
+            </div>
+            {kpis?.momentumDown && (
+              <Badge variant="destructive" className="text-xs mt-1">
+                ▼ Momentum down 25%+
+              </Badge>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-card border-0 shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Views (30d)
+            </CardTitle>
+            <Eye className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {kpisLoading ? '...' : formatNumber(kpis?.views30d || 0)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-card border-0 shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Avg Views / Reel (30d)
+            </CardTitle>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {kpisLoading ? '...' : formatNumber(kpis?.avgViewsPerReel30d || 0)}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-card border-0 shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Engagement / 1k (30d)
+            </CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {kpisLoading ? '...' : kpis?.engagementPer1k30d?.toFixed(1) || '0.0'}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2">
-        {/* Top Performing Models */}
+        {/* Top Reels */}
         <Card className="bg-gradient-card border-0 shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="w-5 h-5" />
-              Top Performing Models
+              <PlayCircle className="w-5 h-5" />
+              Top Reels (30d)
             </CardTitle>
             <CardDescription>
-              Models with highest engagement this month
+              Best performing content by views
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {topModels.map((model, index) => (
-              <div key={model.name} className="flex items-center justify-between p-3 rounded-lg bg-muted/50">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center text-sm font-semibold text-primary">
-                    {index + 1}
-                  </div>
-                  <div>
-                    <p className="font-medium">{model.name}</p>
-                    <p className="text-sm text-muted-foreground">{model.reels} reels</p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="font-medium">{model.views}</p>
-                  <p className="text-sm text-success">{model.engagement}</p>
-                </div>
+          <CardContent>
+            {reelsLoading ? (
+              <div className="space-y-3">
+                {[1, 2, 3].map(i => (
+                  <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                ))}
               </div>
-            ))}
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Content</TableHead>
+                    <TableHead className="text-right">Views</TableHead>
+                    <TableHead className="text-right">Likes</TableHead>
+                    <TableHead className="text-right">Comments</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topReels?.map((reel) => (
+                    <TableRow key={reel.id}>
+                      <TableCell>
+                        <div className="max-w-xs">
+                          <p className="text-sm font-medium line-clamp-2">
+                            {reel.caption || 'No caption'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            @{reel.models.instagram_username}
+                          </p>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatNumber(reel.latestViews)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatNumber(reel.latestLikes)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatNumber(reel.latestComments)}
+                      </TableCell>
+                      <TableCell>
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => {
+                            track('dashboard:open_reel', { reelId: reel.id });
+                            window.open(reel.url, '_blank');
+                          }}
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 
-        {/* Recent Activity */}
+        {/* Cadence Chart */}
         <Card className="bg-gradient-card border-0 shadow-md">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" />
-              Recent Activity
+              <Calendar className="w-5 h-5" />
+              Cadence (30d)
             </CardTitle>
             <CardDescription>
-              Latest updates from your models
+              Reels posted per day
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {recentActivity.map((activity, index) => (
-              <div key={index} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                <div className="w-2 h-2 bg-primary rounded-full mt-2"></div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm">
-                    <span className="font-medium text-primary">{activity.model}</span>
-                    {' '}
-                    <span className="text-muted-foreground">{activity.action}</span>
-                  </p>
-                  <div className="flex items-center justify-between mt-1">
-                    <p className="text-xs text-muted-foreground">{activity.time}</p>
-                    <p className="text-xs font-medium text-success">{activity.metric}</p>
-                  </div>
+          <CardContent>
+            {cadenceLoading ? (
+              <div className="h-32 bg-muted animate-pulse rounded-lg" />
+            ) : (
+              <div className="space-y-2">
+                <div className="flex items-end justify-between h-24 gap-1">
+                  {cadenceData?.map((day, index) => (
+                    <div key={index} className="flex-1 flex flex-col items-center">
+                      <div 
+                        className="w-full bg-primary/20 rounded-sm transition-all hover:bg-primary/40"
+                        style={{
+                          height: maxCadence > 0 ? `${(day.reels / maxCadence) * 80}px` : '2px',
+                          minHeight: '2px'
+                        }}
+                        title={`${format(new Date(day.day), 'MMM d')}: ${day.reels} reels`}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>{cadenceData?.[0] ? format(new Date(cadenceData[0].day), 'MMM d') : ''}</span>
+                  <span>{cadenceData?.[cadenceData.length - 1] ? format(new Date(cadenceData[cadenceData.length - 1].day), 'MMM d') : ''}</span>
                 </div>
               </div>
-            ))}
+            )}
           </CardContent>
         </Card>
       </div>
-
-      {/* Quick Actions */}
-      <Card className="bg-gradient-card border-0 shadow-md">
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-          <CardDescription>
-            Common tasks and shortcuts
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-4">
-            <button className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors">
-              <Users className="w-4 h-4" />
-              <span className="text-sm font-medium">Add Model</span>
-            </button>
-            <button className="flex items-center gap-2 p-3 rounded-lg bg-accent/10 text-accent hover:bg-accent/20 transition-colors">
-              <PlayCircle className="w-4 h-4" />
-              <span className="text-sm font-medium">View Reels</span>
-            </button>
-            <button className="flex items-center gap-2 p-3 rounded-lg bg-success/10 text-success hover:bg-success/20 transition-colors">
-              <BarChart3 className="w-4 h-4" />
-              <span className="text-sm font-medium">Analytics</span>
-            </button>
-            <button className="flex items-center gap-2 p-3 rounded-lg bg-warning/10 text-warning hover:bg-warning/20 transition-colors">
-              <TrendingUp className="w-4 h-4" />
-              <span className="text-sm font-medium">Reports</span>
-            </button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

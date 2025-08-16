@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,10 +7,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Eye, Heart, MessageCircle, Share, Bookmark, Filter, Download, RefreshCw } from 'lucide-react';
+import { Eye, Heart, MessageCircle, Share, Bookmark, Filter, Download, RefreshCw, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
+import { useModels, useReels } from '@/lib/supabase-queries';
+import { track } from '@/lib/track';
 
-// Mock data for reels
+// Mock data for reels (fallback)
 const mockReels = [
   {
     id: '1',
@@ -106,18 +108,36 @@ export default function Reels() {
   const [minViews, setMinViews] = useState<number[]>([0]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   
-  // TODO: Replace with real Supabase hooks when ready
-  // const { toast } = useToast();
-  // const { data: models } = useModels();
-  // const { data: reels, isLoading, error } = useReels({
-  //   modelId: selectedModel !== 'all' ? selectedModel : undefined,
-  //   dateRange,
-  //   minViews: minViews[0]
-  // });
+  const { data: models } = useModels();
+  const { data: reels, isLoading, error } = useReels({
+    modelId: selectedModel !== 'all' ? selectedModel : undefined,
+    dateRange,
+    minViews: minViews[0]
+  });
+
+  useEffect(() => {
+    track('reels:page_load', { 
+      selectedModel,
+      dateRange,
+      minViews: minViews[0]
+    });
+  }, []);
 
   const handleFilterChange = (type: string, value: any) => {
-    // track('reels:filter_changed', { type, value });
-    console.log('Filter changed:', type, value);
+    track('reels:filter_changed', { type, value });
+    
+    if (type === 'model') {
+      setSelectedModel(value);
+    } else if (type === 'dateRange') {
+      setDateRange(value);
+    } else if (type === 'minViews') {
+      setMinViews([value]);
+    }
+  };
+
+  const handleRowOpen = (reelId: string, url: string) => {
+    track('reels:row_open', { reelId });
+    window.open(url, '_blank');
   };
 
   const formatNumber = (num: number) => {
@@ -131,16 +151,34 @@ export default function Reels() {
     return ((total / metrics.views) * 100).toFixed(1);
   };
 
+  // Use real data if available, fallback to mock
+  const reelsData = reels || mockReels.map(reel => ({
+    ...reel,
+    models: { instagram_username: reel.modelUsername.replace('@', '') },
+    reel_metrics_daily: [{
+      views: reel.metrics.views,
+      likes: reel.metrics.likes,
+      comments: reel.metrics.comments,
+      shares: reel.metrics.shares,
+      saves: reel.metrics.saves
+    }]
+  }));
+
   // Filter reels based on current filters
-  const filteredReels = mockReels.filter(reel => {
-    const matchesModel = selectedModel === 'all' || reel.modelUsername === selectedModel;
-    const matchesViews = reel.metrics.views >= minViews[0];
-    const matchesSearch = reel.caption.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         reel.modelUsername.toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredReels = reelsData.filter(reel => {
+    const username = reel.models?.instagram_username || reel.modelUsername?.replace('@', '');
+    const latestMetrics = reel.reel_metrics_daily?.[0] || reel.metrics;
+    
+    const matchesModel = selectedModel === 'all' || username === selectedModel;
+    const matchesViews = (latestMetrics?.views || 0) >= minViews[0];
+    const matchesSearch = (reel.caption || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         username.toLowerCase().includes(searchTerm.toLowerCase());
     return matchesModel && matchesViews && matchesSearch;
   });
 
-  const uniqueModels = Array.from(new Set(mockReels.map(reel => reel.modelUsername)));
+  const uniqueModels = models || Array.from(new Set(mockReels.map(reel => ({ 
+    instagram_username: reel.modelUsername.replace('@', '') 
+  }))));
 
   return (
     <div className="p-6 space-y-6">
@@ -224,58 +262,60 @@ export default function Reels() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-4">
-            <div className="space-y-2">
-              <Label htmlFor="search">Search</Label>
-              <Input
-                id="search"
-                placeholder="Search captions or usernames..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="model">Model</Label>
-              <Select value={selectedModel} onValueChange={setSelectedModel}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Models</SelectItem>
-                  {uniqueModels.map(model => (
-                    <SelectItem key={model} value={model}>{model}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="dateRange">Date Range</Label>
-              <Select value={dateRange} onValueChange={setDateRange}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select range" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">Last 7 days</SelectItem>
-                  <SelectItem value="30">Last 30 days</SelectItem>
-                  <SelectItem value="90">Last 90 days</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="minViews">Min Views: {formatNumber(minViews[0])}</Label>
-              <Slider
-                id="minViews"
-                value={minViews}
-                onValueChange={setMinViews}
-                max={50000}
-                step={1000}
-                className="w-full"
-              />
-            </div>
+        <div className="grid gap-4 md:grid-cols-4">
+          <div className="space-y-2">
+            <Label htmlFor="search">Search</Label>
+            <Input
+              id="search"
+              placeholder="Search captions or usernames..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="model">Model</Label>
+            <Select value={selectedModel} onValueChange={(value) => handleFilterChange('model', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select model" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Models</SelectItem>
+                {uniqueModels.map(model => (
+                  <SelectItem key={model.instagram_username} value={model.instagram_username}>
+                    @{model.instagram_username}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="dateRange">Date Range</Label>
+            <Select value={dateRange} onValueChange={(value) => handleFilterChange('dateRange', value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select range" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Last 7 days</SelectItem>
+                <SelectItem value="30">Last 30 days</SelectItem>
+                <SelectItem value="90">Last 90 days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="minViews">Min Views: {formatNumber(minViews[0])}</Label>
+            <Slider
+              id="minViews"
+              value={minViews}
+              onValueChange={(value) => handleFilterChange('minViews', value[0])}
+              max={50000}
+              step={1000}
+              className="w-full"
+            />
+          </div>
+        </div>
         </CardContent>
       </Card>
 
@@ -288,80 +328,84 @@ export default function Reels() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Content</TableHead>
-                <TableHead>Model</TableHead>
-                <TableHead>Posted</TableHead>
-                <TableHead className="text-right">Views</TableHead>
-                <TableHead className="text-right">Likes</TableHead>
-                <TableHead className="text-right">Comments</TableHead>
-                <TableHead className="text-right">Shares</TableHead>
-                <TableHead className="text-right">Saves</TableHead>
-                <TableHead className="text-right">Engagement</TableHead>
-                <TableHead className="text-right">7d Trend</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredReels.map((reel) => (
-                <TableRow key={reel.id}>
-                  <TableCell>
-                    <div className="flex items-start gap-3 max-w-xs">
-                      <div className="w-12 h-12 bg-muted rounded-lg flex-shrink-0 flex items-center justify-center">
-                        <Eye className="w-5 h-5 text-muted-foreground" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium line-clamp-2">
-                          {reel.caption}
-                        </p>
-                        <a 
-                          href={reel.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary hover:underline"
-                        >
-                          View on Instagram
-                        </a>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">{reel.modelUsername}</Badge>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {format(reel.postedAt, 'MMM d, yyyy')}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatNumber(reel.metrics.views)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatNumber(reel.metrics.likes)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatNumber(reel.metrics.comments)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatNumber(reel.metrics.shares)}
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {formatNumber(reel.metrics.saves)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Badge 
-                      variant={parseFloat(calculateEngagement(reel.metrics)) > 3 ? "default" : "secondary"}
-                      className="font-mono"
-                    >
-                      {calculateEngagement(reel.metrics)}%
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Sparkline data={reel.weeklyViews} />
-                  </TableCell>
-                </TableRow>
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
               ))}
-            </TableBody>
-          </Table>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Content</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Posted</TableHead>
+                  <TableHead className="text-right">Views</TableHead>
+                  <TableHead className="text-right">Likes</TableHead>
+                  <TableHead className="text-right">Comments</TableHead>
+                  <TableHead className="text-right">7d Trend</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filteredReels.map((reel) => {
+                  const latestMetrics = reel.reel_metrics_daily?.[0] || reel.metrics;
+                  const username = reel.models?.instagram_username || reel.modelUsername?.replace('@', '');
+                  const postedAt = reel.posted_at ? new Date(reel.posted_at) : reel.postedAt;
+                  const weeklyData = reel.weeklyViews || [0, 0, 0, 0, 0, 0, latestMetrics?.views || 0];
+                  
+                  return (
+                    <TableRow key={reel.id} className="cursor-pointer hover:bg-muted/50">
+                      <TableCell>
+                        <div className="flex items-start gap-3 max-w-xs">
+                          <div className="w-12 h-12 bg-muted rounded-lg flex-shrink-0 flex items-center justify-center">
+                            {reel.thumbnail_url ? (
+                              <img src={reel.thumbnail_url} alt="Thumbnail" className="w-full h-full object-cover rounded-lg" />
+                            ) : (
+                              <Eye className="w-5 h-5 text-muted-foreground" />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium line-clamp-2">
+                              {reel.caption || 'No caption'}
+                            </p>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">@{username}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {postedAt ? format(postedAt, 'MMM d, yyyy') : 'Unknown'}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatNumber(latestMetrics?.views || 0)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatNumber(latestMetrics?.likes || 0)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono">
+                        {formatNumber(latestMetrics?.comments || 0)}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Sparkline data={weeklyData} />
+                      </TableCell>
+                      <TableCell>
+                        <Button 
+                          size="sm" 
+                          variant="ghost"
+                          onClick={() => handleRowOpen(reel.id, reel.url)}
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
