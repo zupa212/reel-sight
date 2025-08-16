@@ -393,10 +393,10 @@ export default function Models() {
                       {formatDate(model.last_daily_scrape_at)}
                     </TableCell>
                     <TableCell>
-                      {!model.enabled && (
+                      {model.status !== 'enabled' && (
                         <Button
                           size="sm"
-                          onClick={() => handleEnableModel(model.id, model.instagram_username)}
+                          onClick={() => handleEnableModel(model.id, model.username)}
                           disabled={enablingModels.has(model.id)}
                         >
                           {enablingModels.has(model.id) ? (

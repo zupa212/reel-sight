@@ -151,22 +151,22 @@ export default function Reels() {
     return ((total / metrics.views) * 100).toFixed(1);
   };
 
-  // Use real data if available, fallback to mock
-  const reelsData = reels || mockReels.map(reel => ({
+  // Process the data to match the expected format
+  const reelsData = (reels || mockReels).map(reel => ({
     ...reel,
-    models: { instagram_username: reel.modelUsername.replace('@', '') },
-    reel_metrics_daily: [{
-      views: reel.metrics.views,
-      likes: reel.metrics.likes,
-      comments: reel.metrics.comments,
-      shares: reel.metrics.shares,
-      saves: reel.metrics.saves
+    models: reel.models || { username: reel.modelUsername?.replace('@', '') },
+    reel_metrics_daily: reel.reel_metrics_daily || [{
+      views: reel.metrics?.views || 0,
+      likes: reel.metrics?.likes || 0,
+      comments: reel.metrics?.comments || 0,
+      shares: reel.metrics?.shares || 0,
+      saves: reel.metrics?.saves || 0
     }]
   }));
 
   // Filter reels based on current filters
   const filteredReels = reelsData.filter(reel => {
-    const username = reel.models?.instagram_username || reel.modelUsername?.replace('@', '');
+    const username = reel.models?.username || reel.modelUsername?.replace('@', '');
     const latestMetrics = reel.reel_metrics_daily?.[0] || reel.metrics;
     
     const matchesModel = selectedModel === 'all' || username === selectedModel;
@@ -177,7 +177,7 @@ export default function Reels() {
   });
 
   const uniqueModels = models || Array.from(new Set(mockReels.map(reel => ({ 
-    instagram_username: reel.modelUsername.replace('@', '') 
+    username: reel.modelUsername.replace('@', '') 
   }))));
 
   return (
@@ -282,8 +282,8 @@ export default function Reels() {
               <SelectContent>
                 <SelectItem value="all">All Models</SelectItem>
                 {uniqueModels.map(model => (
-                  <SelectItem key={model.instagram_username} value={model.instagram_username}>
-                    @{model.instagram_username}
+                  <SelectItem key={model.username} value={model.username}>
+                    @{model.username}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -351,9 +351,9 @@ export default function Reels() {
               <TableBody>
                 {filteredReels.map((reel) => {
                   const latestMetrics = reel.reel_metrics_daily?.[0] || reel.metrics;
-                  const username = reel.models?.instagram_username || reel.modelUsername?.replace('@', '');
+                  const username = reel.models?.username || reel.modelUsername?.replace('@', '');
                   const postedAt = reel.posted_at ? new Date(reel.posted_at) : reel.postedAt;
-                  const weeklyData = reel.weeklyViews || [0, 0, 0, 0, 0, 0, latestMetrics?.views || 0];
+                  const weeklyData = reel.weeklyViews || reel.reel_metrics_daily?.map(m => m.views || 0).slice(-7) || [0, 0, 0, 0, 0, 0, latestMetrics?.views || 0];
                   
                   return (
                     <TableRow key={reel.id} className="cursor-pointer hover:bg-muted/50">

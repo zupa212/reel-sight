@@ -75,14 +75,14 @@ export default function Dashboard() {
         
         {/* Model Filter */}
         <div className="w-64">
-          <Select value={selectedModels.length === 0 ? 'all' : models?.find(m => selectedModels.includes(m.id))?.instagram_username || 'all'} onValueChange={handleModelFilterChange}>
+          <Select value={selectedModels.length === 0 ? 'all' : models?.find(m => selectedModels.includes(m.id))?.username || 'all'} onValueChange={handleModelFilterChange}>
             <SelectTrigger>
               <SelectValue placeholder="Filter by model" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Models</SelectItem>
               {models?.map(model => (
-                <SelectItem key={model.id} value={model.instagram_username}>
+                <SelectItem key={model.id} value={model.username}>
                   @{model.username}
                 </SelectItem>
               ))}
@@ -199,7 +199,7 @@ export default function Dashboard() {
                             {reel.caption || 'No caption'}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            @{reel.models.instagram_username}
+                            @{(reel as any).models?.username || 'Unknown'}
                           </p>
                         </div>
                       </TableCell>
