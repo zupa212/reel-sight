@@ -153,7 +153,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {kpisLoading ? '...' : kpis?.engagementPer1k30d?.toFixed(1) || '0.0'}
+              {dashboardLoading ? '...' : kpis?.engagementPer1k30d?.toFixed(1) || '0.0'}
             </div>
           </CardContent>
         </Card>

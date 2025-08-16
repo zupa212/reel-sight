@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Sparkline } from '@/components/ui/sparkline';
 import { Eye, Heart, MessageCircle, Share, Bookmark, Filter, Download, RefreshCw, ExternalLink } from 'lucide-react';
 import { format } from 'date-fns';
 import { useModels, useReels } from '@/lib/supabase-queries';
@@ -79,28 +80,6 @@ const mockReels = [
     weeklyViews: [600, 1100, 1500, 1750, 1850, 1920, 1940]
   }
 ];
-
-// Simple sparkline component
-const Sparkline = ({ data, className }: { data: number[], className?: string }) => {
-  const max = Math.max(...data);
-  const points = data.map((value, index) => {
-    const x = (index / (data.length - 1)) * 60;
-    const y = 20 - (value / max) * 15;
-    return `${x},${y}`;
-  }).join(' ');
-
-  return (
-    <svg width="60" height="20" className={className}>
-      <polyline
-        points={points}
-        fill="none"
-        stroke="hsl(var(--primary))"
-        strokeWidth="1.5"
-        className="opacity-80"
-      />
-    </svg>
-  );
-};
 
 export default function Reels() {
   const [selectedModel, setSelectedModel] = useState<string>('all');
@@ -358,18 +337,29 @@ export default function Reels() {
                   return (
                     <TableRow key={reel.id} className="cursor-pointer hover:bg-muted/50">
                       <TableCell>
-                        <div className="flex items-start gap-3 max-w-xs">
-                          <div className="w-12 h-12 bg-muted rounded-lg flex-shrink-0 flex items-center justify-center">
-                            {reel.thumbnail_url ? (
-                              <img src={reel.thumbnail_url} alt="Thumbnail" className="w-full h-full object-cover rounded-lg" />
-                            ) : (
-                              <Eye className="w-5 h-5 text-muted-foreground" />
+                        <div className="flex items-center gap-2">
+                          <div className="w-12 h-12 bg-muted rounded overflow-hidden">
+                            {reel.thumbnail_url && (
+                              <img 
+                                src={reel.thumbnail_url} 
+                                alt="Reel thumbnail"
+                                className="w-full h-full object-cover"
+                              />
                             )}
                           </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium line-clamp-2">
-                              {reel.caption || 'No caption'}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">{reel.caption || 'No caption'}</p>
+                            <p className="text-sm text-muted-foreground">
+                              @{username} • {postedAt ? format(postedAt, 'MMM d, yyyy') : 'Unknown'}
                             </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Sparkline 
+                              data={weeklyData} 
+                              width={60} 
+                              height={20}
+                              className="text-primary"
+                            />
                           </div>
                         </div>
                       </TableCell>
@@ -389,7 +379,7 @@ export default function Reels() {
                         {formatNumber(latestMetrics?.comments || 0)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <Sparkline data={weeklyData} />
+                        {/* Sparkline already included in content cell */}
                       </TableCell>
                       <TableCell>
                         <Button 

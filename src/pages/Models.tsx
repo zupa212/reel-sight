@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +35,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { useModels, useAddModel } from '@/lib/supabase-queries';
+import { useModels, useAddModel, useReels } from '@/lib/supabase-queries';
 import { track } from '@/lib/track';
 import { callEdge } from '@/lib/action';
 import { addModelSchema } from '@/lib/validation';
@@ -51,7 +51,17 @@ export default function Models() {
   
   const { toast } = useToast();
   const { data: models, isLoading, error } = useModels();
+  const { data: reels } = useReels();
   const addModelMutation = useAddModel();
+
+  // Count reels per model
+  const reelsCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    reels?.forEach(reel => {
+      counts.set(reel.model_id, (counts.get(reel.model_id) || 0) + 1);
+    });
+    return counts;
+  }, [reels]);
 
   const handleAddModel = async () => {
     if (!newModelUsername.trim()) return;
@@ -132,24 +142,21 @@ export default function Models() {
     }
   };
 
-  // Check if model has reels to stop showing backfilling chip
+  // Check if model has reels and backfill is completed
   const hasReels = (modelId: string) => {
-    // This would need to be implemented with actual reel data
-    // For now, we'll clear backfilling after 30 seconds as demo
-    setTimeout(() => {
-      setBackfillingModels(prev => {
-        const next = new Set(prev);
-        next.delete(modelId);
-        return next;
-      });
-    }, 30000);
-    return false;
+    const model = models?.find(m => m.id === modelId);
+    return model?.backfill_completed && (reelsCount.get(modelId) || 0) > 0;
   };
 
-  const getLastScrapedText = (modelId: string) => {
-    // This would check latest reel posted_at for this model
-    // For now, return placeholder
-    return "Last scraped: never";
+  const getLastScrapedText = (model: any) => {
+    if (!model.last_scraped_at) return "Never scraped";
+    const timeDiff = Date.now() - new Date(model.last_scraped_at).getTime();
+    const hours = Math.floor(timeDiff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    return "Just now";
   };
 
   const getStatusBadge = (enabled: boolean) => {
@@ -366,14 +373,23 @@ export default function Models() {
                 {models.map((model) => (
                   <TableRow key={model.id}>
                     <TableCell>
-                      <div>
-                        <div className="font-medium">@{model.username}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="font-medium">@{model.username}</div>
+                          {model.status === 'enabled' && !hasReels(model.id) && (
+                            <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-200">
+                              Backfilling...
+                            </Badge>
+                          )}
+                        </div>
                         {model.display_name && (
                           <div className="text-sm text-muted-foreground">{model.display_name}</div>
                         )}
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {getLastScrapedText(model.id)}
-                        </div>
+                        {model.status === 'enabled' && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            Last scraped: {getLastScrapedText(model)}
+                          </div>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>

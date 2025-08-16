@@ -180,6 +180,20 @@ serve(async (req) => {
           last_message: `Processed ${processedReels} reels, ${errors} errors`
         });
 
+        // Update model's last scraped time and backfill completion
+        if (processedReels > 0) {
+          const processedModelIds = [...new Set(Object.values(modelMap))];
+          for (const modelId of processedModelIds) {
+            await supabase
+              .from("models")
+              .update({ 
+                last_scraped_at: new Date().toISOString(),
+                backfill_completed: true 
+              })
+              .eq("id", modelId);
+          }
+        }
+
         console.log(`Webhook processing complete: ${processedReels} reels processed, ${errors} errors`);
 
       } catch (datasetError) {
