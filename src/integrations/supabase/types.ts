@@ -380,9 +380,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_model: {
+        Args: { display_name_param?: string; username_param: string }
+        Returns: string
+      }
       api_dashboard_bundle: {
         Args: { model_ids?: string[] }
         Returns: Json
+      }
+      ensure_user_workspace: {
+        Args: Record<PropertyKey, never>
+        Returns: string
       }
       is_workspace_member: {
         Args: { user_id: string; workspace_id: string }

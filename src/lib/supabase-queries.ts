@@ -34,26 +34,18 @@ export function useAddModel() {
       // Clean username (remove @ if present)
       const cleanUsername = username.replace(/^@/, '');
       
-      // For now, use a hardcoded workspace_id since auth is disabled
-      const hardcodedWorkspaceId = '00000000-0000-0000-0000-000000000000';
-      
-      const { data, error } = await supabase
-        .from('models')
-        .insert({
-          username: cleanUsername,
-          display_name: displayName,
-          workspace_id: hardcodedWorkspaceId,
-          status: 'pending'
-        })
-        .select()
-        .single();
+      // Use the add_model RPC function which handles workspace creation automatically
+      const { data, error } = await supabase.rpc('add_model', {
+        username_param: cleanUsername,
+        display_name_param: displayName || null
+      });
       
       if (error) {
         track('mutation:add_model_error', { error: error.message });
         throw error;
       }
       
-      track('mutation:add_model_ok', { modelId: data.id });
+      track('mutation:add_model_ok', { username: cleanUsername, modelId: data });
       return data;
     },
     onSuccess: () => {
