@@ -105,6 +105,11 @@ export default function Reels() {
   const [dateRange, setDateRange] = useState<string>('30');
   const [minViews, setMinViews] = useState<number[]>([0]);
   const [searchTerm, setSearchTerm] = useState<string>('');
+  
+  // TODO: Replace with real data hooks when ready
+  const handleFilterChange = (type: string, value: any) => {
+    track('reels:filter_changed', { type, value });
+  };
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;

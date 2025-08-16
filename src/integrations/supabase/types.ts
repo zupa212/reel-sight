@@ -14,6 +14,63 @@ export type Database = {
   }
   public: {
     Tables: {
+      cron_status: {
+        Row: {
+          last_message: string | null
+          last_ok: boolean | null
+          last_run_at: string | null
+          name: string
+        }
+        Insert: {
+          last_message?: string | null
+          last_ok?: boolean | null
+          last_run_at?: string | null
+          name: string
+        }
+        Update: {
+          last_message?: string | null
+          last_ok?: boolean | null
+          last_run_at?: string | null
+          name?: string
+        }
+        Relationships: []
+      }
+      event_logs: {
+        Row: {
+          context: Json | null
+          event: string
+          id: string
+          ip: unknown | null
+          level: string | null
+          page: string | null
+          ts: string | null
+          user_agent: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          context?: Json | null
+          event: string
+          id?: string
+          ip?: unknown | null
+          level?: string | null
+          page?: string | null
+          ts?: string | null
+          user_agent?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          context?: Json | null
+          event?: string
+          id?: string
+          ip?: unknown | null
+          level?: string | null
+          page?: string | null
+          ts?: string | null
+          user_agent?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: []
+      }
       models: {
         Row: {
           apify_task_id: string | null

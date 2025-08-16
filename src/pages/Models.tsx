@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { format } from 'date-fns';
 import {
   Dialog,
@@ -24,7 +25,8 @@ import {
   Pause, 
   ExternalLink,
   Calendar,
-  BarChart3
+  BarChart3,
+  Loader2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -32,114 +34,94 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useToast } from '@/hooks/use-toast';
+import { useModels, useAddModel } from '@/lib/supabase-queries';
+import { track } from '@/lib/track';
+import { callEdge } from '@/lib/action';
+import { addModelSchema } from '@/lib/validation';
 
 type ModelStatus = 'enabled' | 'disabled' | 'pending';
-
-interface Model {
-  id: string;
-  username: string;
-  displayName: string;
-  status: ModelStatus;
-  lastScraped: string | null;
-  backfillCompleted: boolean;
-  totalReels: number;
-  totalViews: string;
-  averageEngagement: string;
-  createdAt: string;
-}
 
 export default function Models() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newModelUsername, setNewModelUsername] = useState('');
   const [newModelDisplayName, setNewModelDisplayName] = useState('');
+  const [enablingModels, setEnablingModels] = useState<Set<string>>(new Set());
+  
+  const { toast } = useToast();
+  const { data: models, isLoading, error } = useModels();
+  const addModelMutation = useAddModel();
 
-  // Mock data for demo purposes
-  const [models, setModels] = useState<Model[]>([
-    {
-      id: '1',
-      username: 'model_sarah',
-      displayName: 'Sarah Johnson',
-      status: 'enabled',
-      lastScraped: '2024-08-16T10:30:00Z',
-      backfillCompleted: true,
-      totalReels: 45,
-      totalViews: '284K',
-      averageEngagement: '5.2%',
-      createdAt: '2024-07-15T09:00:00Z'
-    },
-    {
-      id: '2',
-      username: 'fitness_emma',
-      displayName: 'Emma Wilson',
-      status: 'enabled',
-      lastScraped: '2024-08-16T09:15:00Z',
-      backfillCompleted: true,
-      totalReels: 38,
-      totalViews: '192K',
-      averageEngagement: '4.8%',
-      createdAt: '2024-07-10T14:20:00Z'
-    },
-    {
-      id: '3',
-      username: 'lifestyle_alex',
-      displayName: 'Alex Thompson',
-      status: 'disabled',
-      lastScraped: '2024-08-14T16:45:00Z',
-      backfillCompleted: true,
-      totalReels: 42,
-      totalViews: '156K',
-      averageEngagement: '4.1%',
-      createdAt: '2024-07-05T11:30:00Z'
-    },
-    {
-      id: '4',
-      username: 'beauty_mia',
-      displayName: 'Mia Chen',
-      status: 'pending',
-      lastScraped: null,
-      backfillCompleted: false,
-      totalReels: 0,
-      totalViews: '0',
-      averageEngagement: '0%',
-      createdAt: '2024-08-16T08:00:00Z'
-    }
-  ]);
-
-  const handleAddModel = () => {
+  const handleAddModel = async () => {
     if (!newModelUsername.trim()) return;
-
-    const newModel: Model = {
-      id: Date.now().toString(),
-      username: newModelUsername.replace('@', ''),
-      displayName: newModelDisplayName || newModelUsername,
-      status: 'pending',
-      lastScraped: null,
-      backfillCompleted: false,
-      totalReels: 0,
-      totalViews: '0',
-      averageEngagement: '0%',
-      createdAt: new Date().toISOString()
-    };
-
-    setModels(prev => [...prev, newModel]);
-    setNewModelUsername('');
-    setNewModelDisplayName('');
-    setIsAddModalOpen(false);
+    
+    track('models:add_clicked', { username: newModelUsername });
+    
+    try {
+      const validatedData = addModelSchema.parse({
+        username: newModelUsername,
+        displayName: newModelDisplayName || undefined
+      });
+      
+      await addModelMutation.mutateAsync(validatedData);
+      
+      toast({
+        title: "Model added",
+        description: `${validatedData.username} has been added to your tracking list.`
+      });
+      
+      setNewModelUsername('');
+      setNewModelDisplayName('');
+      setIsAddModalOpen(false);
+      
+      track('models:add_success', { username: validatedData.username });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      track('models:add_failed', { error: errorMessage });
+      
+      toast({
+        variant: "destructive",
+        title: "Failed to add model",
+        description: errorMessage
+      });
+    }
   };
 
-  const handleToggleStatus = (modelId: string) => {
-    setModels(prev => prev.map(model => 
-      model.id === modelId 
-        ? { 
-            ...model, 
-            status: model.status === 'enabled' ? 'disabled' : 'enabled'
-          }
-        : model
-    ));
-  };
-
-  const handleDeleteModel = (modelId: string) => {
-    setModels(prev => prev.filter(model => model.id !== modelId));
+  const handleEnableModel = async (modelId: string, modelUsername: string) => {
+    track('models:enable_clicked', { modelId });
+    setEnablingModels(prev => new Set(prev).add(modelId));
+    
+    try {
+      const result = await callEdge(
+        "https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/enable_model",
+        { modelId }
+      );
+      
+      if (result.ok) {
+        toast({
+          title: "Backfill started",
+          description: `Scraping has been enabled for @${modelUsername}. Backfill is now in progress.`
+        });
+        track('models:enable_success', { modelId });
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      track('models:enable_failed', { modelId, error: errorMessage });
+      
+      toast({
+        variant: "destructive",
+        title: "Failed to enable model",
+        description: errorMessage
+      });
+    } finally {
+      setEnablingModels(prev => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
+    }
   };
 
   const getStatusBadge = (status: ModelStatus) => {
@@ -160,11 +142,35 @@ export default function Models() {
     return format(new Date(dateString), 'MMM d, yyyy HH:mm');
   };
 
-  const formatNumber = (num: number) => {
-    if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
-    if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toString();
-  };
+  if (isLoading) {
+    return (
+      <div className="p-6 space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-3xl font-bold">Models</h1>
+          <Button disabled>
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            Loading...
+          </Button>
+        </div>
+        <div className="space-y-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12">
+          <h2 className="text-xl font-semibold text-destructive">Error loading models</h2>
+          <p className="text-muted-foreground mt-2">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">
@@ -215,7 +221,13 @@ export default function Models() {
               <Button variant="outline" onClick={() => setIsAddModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleAddModel}>
+              <Button 
+                onClick={handleAddModel}
+                disabled={addModelMutation.isPending}
+              >
+                {addModelMutation.isPending && (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                )}
                 Add Model
               </Button>
             </DialogFooter>
@@ -233,9 +245,9 @@ export default function Models() {
             <Users className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{models.length}</div>
+            <div className="text-2xl font-bold">{models?.length || 0}</div>
             <p className="text-xs text-muted-foreground">
-              {models.filter(m => m.status === 'enabled').length} active
+              {models?.filter(m => m.status === 'enabled').length || 0} active
             </p>
           </CardContent>
         </Card>
@@ -249,27 +261,10 @@ export default function Models() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-success">
-              {models.filter(m => m.status === 'enabled').length}
+              {models?.filter(m => m.status === 'enabled').length || 0}
             </div>
             <p className="text-xs text-muted-foreground">
               Currently tracking
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Reels
-            </CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {models.reduce((sum, model) => sum + model.totalReels, 0)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Across all models
             </p>
           </CardContent>
         </Card>
@@ -283,16 +278,36 @@ export default function Models() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-warning">
-              {models.filter(m => m.status === 'pending').length}
+              {models?.filter(m => m.status === 'pending').length || 0}
             </div>
             <p className="text-xs text-muted-foreground">
               Awaiting backfill
             </p>
           </CardContent>
         </Card>
+
+        <Card className="bg-gradient-card border-0 shadow-md">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Last Updated
+            </CardTitle>
+            <BarChart3 className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm font-medium">
+              {models?.find(m => m.last_daily_scrape_at) 
+                ? formatDate(models.find(m => m.last_daily_scrape_at)?.last_daily_scrape_at || null)
+                : 'Never'
+              }
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Latest scrape
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Models List */}
+      {/* Models Table */}
       <Card className="bg-gradient-card border-0 shadow-md">
         <CardHeader>
           <CardTitle>Your Models</CardTitle>
@@ -301,91 +316,72 @@ export default function Models() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {models.map((model) => (
-              <div
-                key={model.id}
-                className="flex items-center justify-between p-4 rounded-lg border bg-card/50"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-gradient-primary rounded-lg flex items-center justify-center">
-                    <span className="text-white font-semibold text-lg">
-                      {model.displayName.charAt(0)}
-                    </span>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold">{model.displayName}</h3>
+          {!models || models.length === 0 ? (
+            <div className="text-center py-12">
+              <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-semibold">No models yet</h3>
+              <p className="text-muted-foreground mb-4">
+                Start by adding your first Instagram creator to track
+              </p>
+              <Button onClick={() => setIsAddModalOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Your First Model
+              </Button>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Last Backfill</TableHead>
+                  <TableHead>Last Daily Scrape</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {models.map((model) => (
+                  <TableRow key={model.id}>
+                    <TableCell>
+                      <div>
+                        <div className="font-medium">@{model.username}</div>
+                        {model.display_name && (
+                          <div className="text-sm text-muted-foreground">{model.display_name}</div>
+                        )}
+                      </div>
+                    </TableCell>
+                    <TableCell>
                       {getStatusBadge(model.status)}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                      @{model.username}
-                    </p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>{model.totalReels} reels</span>
-                      <span>{model.totalViews} views</span>
-                      <span>{model.averageEngagement} engagement</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="text-right text-xs text-muted-foreground">
-                    <p>Last scraped:</p>
-                    <p>{formatDate(model.lastScraped)}</p>
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={model.status === 'enabled'}
-                      onCheckedChange={() => handleToggleStatus(model.id)}
-                      disabled={model.status === 'pending'}
-                    />
-                    
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreVertical className="w-4 h-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem>
-                          <ExternalLink className="w-4 h-4 mr-2" />
-                          View Profile
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <BarChart3 className="w-4 h-4 mr-2" />
-                          View Analytics
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive"
-                          onClick={() => handleDeleteModel(model.id)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(model.last_backfill_at)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {formatDate(model.last_daily_scrape_at)}
+                    </TableCell>
+                    <TableCell>
+                      {model.status !== 'enabled' && (
+                        <Button
+                          size="sm"
+                          onClick={() => handleEnableModel(model.id, model.username)}
+                          disabled={enablingModels.has(model.id)}
                         >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete Model
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {models.length === 0 && (
-              <div className="text-center py-12">
-                <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold">No models yet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Start by adding your first Instagram creator to track
-                </p>
-                <Button onClick={() => setIsAddModalOpen(true)}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add Your First Model
-                </Button>
-              </div>
-            )}
-          </div>
+                          {enablingModels.has(model.id) ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              Enabling...
+                            </>
+                          ) : (
+                            'Enable Scraping'
+                          )}
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
