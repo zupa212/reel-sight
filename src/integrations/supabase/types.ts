@@ -16,33 +16,45 @@ export type Database = {
     Tables: {
       models: {
         Row: {
+          apify_task_id: string | null
           backfill_completed: boolean
           created_at: string
           display_name: string | null
           id: string
+          last_backfill_at: string | null
+          last_daily_scrape_at: string | null
           last_scraped_at: string | null
+          secure_blob: Json | null
           status: Database["public"]["Enums"]["model_status"]
           updated_at: string
           username: string
           workspace_id: string
         }
         Insert: {
+          apify_task_id?: string | null
           backfill_completed?: boolean
           created_at?: string
           display_name?: string | null
           id?: string
+          last_backfill_at?: string | null
+          last_daily_scrape_at?: string | null
           last_scraped_at?: string | null
+          secure_blob?: Json | null
           status?: Database["public"]["Enums"]["model_status"]
           updated_at?: string
           username: string
           workspace_id: string
         }
         Update: {
+          apify_task_id?: string | null
           backfill_completed?: boolean
           created_at?: string
           display_name?: string | null
           id?: string
+          last_backfill_at?: string | null
+          last_daily_scrape_at?: string | null
           last_scraped_at?: string | null
+          secure_blob?: Json | null
           status?: Database["public"]["Enums"]["model_status"]
           updated_at?: string
           username?: string
@@ -96,7 +108,7 @@ export type Database = {
           comments: number | null
           completion_rate: number | null
           created_at: string
-          date: string
+          day: string
           id: string
           likes: number | null
           reel_id: string
@@ -104,13 +116,14 @@ export type Database = {
           shares: number | null
           updated_at: string
           views: number | null
+          watch_time_seconds: number | null
           workspace_id: string
         }
         Insert: {
           comments?: number | null
           completion_rate?: number | null
           created_at?: string
-          date: string
+          day: string
           id?: string
           likes?: number | null
           reel_id: string
@@ -118,13 +131,14 @@ export type Database = {
           shares?: number | null
           updated_at?: string
           views?: number | null
+          watch_time_seconds?: number | null
           workspace_id: string
         }
         Update: {
           comments?: number | null
           completion_rate?: number | null
           created_at?: string
-          date?: string
+          day?: string
           id?: string
           likes?: number | null
           reel_id?: string
@@ -132,6 +146,7 @@ export type Database = {
           shares?: number | null
           updated_at?: string
           views?: number | null
+          watch_time_seconds?: number | null
           workspace_id?: string
         }
         Relationships: [
@@ -155,30 +170,42 @@ export type Database = {
         Row: {
           caption: string | null
           created_at: string
+          duration_seconds: number | null
+          hashtags: string[] | null
           id: string
           instagram_id: string
           model_id: string
+          platform_post_id: string | null
           posted_at: string
+          thumbnail_url: string | null
           url: string
           workspace_id: string
         }
         Insert: {
           caption?: string | null
           created_at?: string
+          duration_seconds?: number | null
+          hashtags?: string[] | null
           id?: string
           instagram_id: string
           model_id: string
+          platform_post_id?: string | null
           posted_at: string
+          thumbnail_url?: string | null
           url: string
           workspace_id: string
         }
         Update: {
           caption?: string | null
           created_at?: string
+          duration_seconds?: number | null
+          hashtags?: string[] | null
           id?: string
           instagram_id?: string
           model_id?: string
+          platform_post_id?: string | null
           posted_at?: string
+          thumbnail_url?: string | null
           url?: string
           workspace_id?: string
         }
@@ -202,6 +229,7 @@ export type Database = {
       webhooks_inbox: {
         Row: {
           created_at: string
+          dedupe_key: string | null
           hash: string
           id: string
           payload: Json
@@ -212,6 +240,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          dedupe_key?: string | null
           hash: string
           id?: string
           payload: Json
@@ -222,6 +251,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          dedupe_key?: string | null
           hash?: string
           id?: string
           payload?: Json
@@ -295,6 +325,10 @@ export type Database = {
     Functions: {
       is_workspace_member: {
         Args: { user_id: string; workspace_id: string }
+        Returns: boolean
+      }
+      user_in_workspace: {
+        Args: { target_workspace_id: string }
         Returns: boolean
       }
     }
