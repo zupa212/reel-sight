@@ -34,16 +34,28 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Update model status to enabled
-    const { data: model, error: updateError } = await supabase
+    // Look up model by id to get username + workspace_id
+    const { data: model, error: fetchError } = await supabase
+      .from("models")
+      .select("id, username, workspace_id")
+      .eq("id", modelId)
+      .single();
+
+    if (fetchError || !model) {
+      return new Response(JSON.stringify({ error: "Model not found" }), { 
+        status: 404,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Update status='enabled', last_backfill_at=now()
+    const { error: updateError } = await supabase
       .from("models")
       .update({ 
         status: 'enabled',
         last_backfill_at: new Date().toISOString()
       })
-      .eq("id", modelId)
-      .select()
-      .single();
+      .eq("id", modelId);
 
     if (updateError) {
       console.error("Error updating model:", updateError);
@@ -53,29 +65,26 @@ serve(async (req) => {
       });
     }
 
-    if (!model?.username) {
-      return new Response(JSON.stringify({ error: "Model not found or missing username" }), { 
-        status: 404,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
-    }
-
     // Log the enable action
     await supabase.from("event_logs").insert({
       event: "model:enabled",
       level: "info",
       context: { modelId, username: model.username },
+      workspace_id: model.workspace_id,
       page: "/models"
     });
 
-    // Start Apify backfill task
+    // Start Apify run
     try {
       const apifyToken = Deno.env.get("APIFY_TOKEN");
-      if (!apifyToken) {
-        throw new Error("APIFY_TOKEN not configured");
+      const apifyWebhookSecret = Deno.env.get("APIFY_WEBHOOK_SECRET");
+      const supabaseUrl = Deno.env.get("SUPABASE_URL");
+      
+      if (!apifyToken || !apifyWebhookSecret) {
+        throw new Error("APIFY_TOKEN or APIFY_WEBHOOK_SECRET not configured");
       }
 
-      const webhookUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/apify_webhook?source=instagram&secret=${Deno.env.get("APIFY_WEBHOOK_SECRET")}`;
+      const webhookUrl = `${supabaseUrl}/functions/v1/apify_webhook?source=instagram&secret=${apifyWebhookSecret}`;
       
       const runResponse = await fetch(
         `https://api.apify.com/v2/acts/apify~instagram-reel-scraper/runs?token=${apifyToken}`,
@@ -109,30 +118,31 @@ serve(async (req) => {
         .update({ apify_task_id: runData.data.id })
         .eq("id", modelId);
 
+      return new Response(JSON.stringify({ started: true }), { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
+
     } catch (apifyError) {
       console.error("Error starting Apify task:", apifyError);
       
-      // Log the error but don't fail the request
+      // Log the error
       await supabase.from("event_logs").insert({
         event: "model:apify_error",
         level: "error",
         context: { modelId, error: apifyError.message },
+        workspace_id: model.workspace_id,
         page: "/models"
+      });
+
+      return new Response(JSON.stringify({ error: apifyError.message }), { 
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
-    console.log(`Model ${model.username} enabled, backfill initiated`);
-
-    return new Response(JSON.stringify({ 
-      ok: true, 
-      message: "Model enabled and backfill started",
-      model 
-    }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-    });
   } catch (error) {
     console.error("Unexpected error in enable_model:", error);
-    return new Response(JSON.stringify({ ok: false, error: "Internal server error" }), { 
+    return new Response(JSON.stringify({ error: "Internal server error" }), { 
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     });
