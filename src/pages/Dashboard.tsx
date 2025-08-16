@@ -1,88 +1,116 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { 
-  Eye, 
   TrendingUp, 
-  BarChart3, 
-  AlertTriangle,
+  TrendingDown, 
+  Eye, 
+  Heart, 
+  MessageCircle, 
   ExternalLink,
-  Users,
-  PlayCircle,
-  Heart,
-  MessageCircle,
-  Calendar
-} from 'lucide-react';
-import { format } from 'date-fns';
-import { useModels, useDashboardBundle } from '@/lib/supabase-queries';
-import { track } from '@/lib/track';
+  Calendar,
+  Activity
+} from "lucide-react";
+import { WorkspaceBanner } from "@/components/ui/workspace-banner";
+import { APP_CONFIG, getDefaultWorkspaceId, isWorkspaceConfigured } from "@/lib/config";
+import { track } from "@/lib/track";
 
 export default function Dashboard() {
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
-  
-  const { data: models } = useModels();
-  const { data: dashboardData, isLoading: dashboardLoading } = useDashboardBundle({ 
-    modelIds: selectedModels.length > 0 ? selectedModels : undefined 
+
+  // Fetch models for filter
+  const { data: models } = useQuery({
+    queryKey: ['models-for-dashboard'],
+    queryFn: async () => {
+      track('dashboard:load');
+      
+      const workspaceId = getDefaultWorkspaceId();
+      if (!workspaceId) return [];
+
+      const { data, error } = await supabase
+        .from('models')
+        .select('id, username, display_name')
+        .eq('workspace_id', workspaceId)
+        .order('username');
+
+      if (error) throw error;
+      return data;
+    },
+    enabled: isWorkspaceConfigured()
   });
 
-  // Extract data from bundle with proper typing
-  const kpis = (dashboardData as any)?.kpis;
-  const topReels = ((dashboardData as any)?.topReels as any[]) || [];
-  const cadenceData = ((dashboardData as any)?.cadence as any[]) || [];
+  // Fetch dashboard data using RPC bundle
+  const { data: dashboardData, isLoading } = useQuery({
+    queryKey: ['dashboard-bundle', selectedModels],
+    queryFn: async () => {
+      track('dashboard:bundle_fetch_start', { selectedModels });
 
-  useEffect(() => {
-    track('dashboard:load', { 
-      selectedModels: selectedModels.length,
-      totalModels: models?.length || 0 
-    });
-  }, [selectedModels, models]);
+      const { data, error } = await supabase.rpc('api_dashboard_bundle', {
+        model_ids: selectedModels.length > 0 ? selectedModels : null
+      });
+
+      if (error) {
+        track('dashboard:bundle_fetch_error', { error: error.message });
+        throw error;
+      }
+
+      track('dashboard:bundle_fetch_ok');
+      return data;
+    },
+    enabled: isWorkspaceConfigured()
+  });
+
+  const kpis = (dashboardData as any)?.kpis || {};
+  const topReels = (dashboardData as any)?.topReels || [];
+  const cadenceData = (dashboardData as any)?.cadence || [];
 
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return Math.round(num).toString();
+    return num.toString();
   };
 
-  const handleModelFilterChange = (value: string) => {
-    if (value === 'all') {
-      setSelectedModels([]);
-      track('dashboard:filter_changed', { type: 'model', value: 'all' });
-    } else {
-      const modelIds = models?.filter(m => 
-        m.username === value
-      ).map(m => m.id) || [];
-      setSelectedModels(modelIds);
-      track('dashboard:filter_changed', { type: 'model', value, modelIds });
-    }
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
+    });
   };
-
-  const maxCadence = Math.max(...(cadenceData?.map(d => d.reels) || [0]));
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
+    <div className="container mx-auto py-8 space-y-6 animate-fade-in">
+      <WorkspaceBanner />
+      
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Instagram Reels performance overview and analytics
-          </p>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your Instagram content performance</p>
         </div>
         
-        {/* Model Filter */}
         <div className="w-64">
-          <Select value={selectedModels.length === 0 ? 'all' : models?.find(m => selectedModels.includes(m.id))?.username || 'all'} onValueChange={handleModelFilterChange}>
+          <Select
+            value={selectedModels.length > 0 ? selectedModels.join(",") : "all"}
+            onValueChange={(value) => {
+              if (value === "all") {
+                setSelectedModels([]);
+              } else {
+                setSelectedModels(value.split(","));
+              }
+            }}
+          >
             <SelectTrigger>
-              <SelectValue placeholder="Filter by model" />
+              <SelectValue placeholder="Filter by models" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Models</SelectItem>
-              {models?.map(model => (
-                <SelectItem key={model.id} value={model.username}>
-                  @{model.username}
+              {models?.map((model) => (
+                <SelectItem key={model.id} value={model.id}>
+                  {model.display_name || `@${model.username}`}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -90,186 +118,191 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid gap-6 md:grid-cols-4">
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Views (7d)
-            </CardTitle>
-            <div className="flex items-center gap-1">
-              <Eye className="h-4 w-4 text-muted-foreground" />
-              {kpis?.momentumDown && (
-                <AlertTriangle className="h-4 w-4 text-destructive" />
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {dashboardLoading ? '...' : formatNumber(kpis?.views7d || 0)}
-            </div>
-            {kpis?.momentumDown && (
-              <Badge variant="destructive" className="text-xs mt-1">
-                ▼ Momentum down 25%+
-              </Badge>
-            )}
-          </CardContent>
-        </Card>
+      {isLoading ? (
+        <div className="grid gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="animate-pulse">
+                <CardHeader className="pb-2">
+                  <div className="h-4 bg-muted rounded w-1/2"></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-8 bg-muted rounded w-1/3"></div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Card className="animate-pulse">
+            <CardHeader>
+              <div className="h-6 bg-muted rounded w-1/4"></div>
+            </CardHeader>
+            <CardContent>
+              <div className="h-64 bg-muted rounded"></div>
+            </CardContent>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid gap-6">
+          {/* KPI Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="bg-gradient-card border-border/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Eye className="h-4 w-4" />
+                  Views (7d)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2">
+                  <div className="text-2xl font-bold text-foreground">
+                    {formatNumber(kpis.views7d || 0)}
+                  </div>
+                  {kpis.momentumDown && (
+                    <Badge variant="destructive" className="text-xs">
+                      <TrendingDown className="h-3 w-3 mr-1" />
+                      Down
+                    </Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Views (30d)
-            </CardTitle>
-            <Eye className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {dashboardLoading ? '...' : formatNumber(kpis?.views30d || 0)}
-            </div>
-          </CardContent>
-        </Card>
+            <Card className="bg-gradient-card border-border/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Activity className="h-4 w-4" />
+                  Engagement/1k (30d)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-foreground">
+                  {(kpis.engagementPer1k30d || 0).toFixed(1)}‰
+                </div>
+              </CardContent>
+            </Card>
 
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Avg Views / Reel (30d)
-            </CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {dashboardLoading ? '...' : formatNumber(kpis?.avgViewsPerReel30d || 0)}
-            </div>
-          </CardContent>
-        </Card>
+            <Card className="bg-gradient-card border-border/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                  <Calendar className="h-4 w-4" />
+                  Avg Views/Reel (30d)
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-foreground">
+                  {formatNumber(Math.round(kpis.avgViewsPerReel30d || 0))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Engagement / 1k (30d)
-            </CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {dashboardLoading ? '...' : kpis?.engagementPer1k30d?.toFixed(1) || '0.0'}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* Top Reels */}
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <PlayCircle className="w-5 h-5" />
-              Top Reels (30d)
-            </CardTitle>
-            <CardDescription>
-              Best performing content by views
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {dashboardLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
-                ))}
-              </div>
-            ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Content</TableHead>
-                    <TableHead className="text-right">Views</TableHead>
-                    <TableHead className="text-right">Likes</TableHead>
-                    <TableHead className="text-right">Comments</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topReels?.map((reel) => (
-                    <TableRow key={reel.id}>
-                      <TableCell>
-                        <div className="max-w-xs">
-                          <p className="text-sm font-medium line-clamp-2">
-                            {reel.caption || 'No caption'}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            @{reel.username || 'Unknown'}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatNumber(reel.views)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatNumber(reel.likes)}
-                      </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {formatNumber(reel.comments)}
-                      </TableCell>
-                      <TableCell>
-                        <Button 
-                          size="sm" 
-                          variant="ghost"
-                          onClick={() => {
-                            track('dashboard:open_reel', { reelId: reel.id });
-                            window.open(reel.url, '_blank');
-                          }}
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Cadence Chart */}
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="w-5 h-5" />
-              Cadence (30d)
-            </CardTitle>
-            <CardDescription>
-              Reels posted per day
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {dashboardLoading ? (
-              <div className="h-32 bg-muted animate-pulse rounded-lg" />
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-end justify-between h-24 gap-1">
-                  {cadenceData?.map((day, index) => (
-                    <div key={index} className="flex-1 flex flex-col items-center">
-                      <div 
-                        className="w-full bg-primary/20 rounded-sm transition-all hover:bg-primary/40"
-                        style={{
-                          height: maxCadence > 0 ? `${(day.reels / maxCadence) * 80}px` : '2px',
-                          minHeight: '2px'
-                        }}
-                        title={`${format(new Date(day.day), 'MMM d')}: ${day.reels} reels`}
-                      />
+          {/* Top Reels */}
+          <Card className="bg-gradient-card border-border/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                Top Reels (30d)
+              </CardTitle>
+              <CardDescription>
+                Best performing content by views
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {topReels && topReels.length > 0 ? (
+                <div className="space-y-4">
+                  {topReels.slice(0, 10).map((reel, index) => (
+                    <div key={reel.id} className="flex items-center gap-4 p-4 bg-background/50 rounded-lg border border-border/50">
+                      <div className="flex-shrink-0 w-8 h-8 bg-primary rounded-full flex items-center justify-center text-primary-foreground font-bold text-sm">
+                        {index + 1}
+                      </div>
+                      
+                      {reel.thumbnail_url && (
+                        <img 
+                          src={reel.thumbnail_url} 
+                          alt="Reel thumbnail"
+                          className="w-16 h-16 object-cover rounded border border-border"
+                        />
+                      )}
+                      
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">
+                          {reel.caption || 'No caption'}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          @{reel.username} • {formatDate(reel.posted_at)}
+                        </p>
+                      </div>
+                      
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-foreground">{formatNumber(reel.views)}</p>
+                        <p className="text-xs text-muted-foreground">views</p>
+                      </div>
+                      
+                      <Button variant="ghost" size="sm" asChild>
+                        <a href={reel.url} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-4 w-4" />
+                        </a>
+                      </Button>
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{cadenceData?.[0] ? format(new Date(cadenceData[0].day), 'MMM d') : ''}</span>
-                  <span>{cadenceData?.[cadenceData.length - 1] ? format(new Date(cadenceData[cadenceData.length - 1].day), 'MMM d') : ''}</span>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  No top reels data available. Enable a model to start tracking performance.
                 </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Publishing Cadence */}
+          <Card className="bg-gradient-card border-border/50">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                Publishing Cadence (30d)
+              </CardTitle>
+              <CardDescription>
+                Daily posting frequency over the last 30 days
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {cadenceData && cadenceData.length > 0 ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={cadenceData}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                      <XAxis 
+                        dataKey="day" 
+                        tickFormatter={(value) => formatDate(value)}
+                        className="text-muted-foreground"
+                      />
+                      <YAxis className="text-muted-foreground" />
+                      <Tooltip 
+                        labelFormatter={(value) => formatDate(value)}
+                        formatter={(value) => [value, 'Reels']}
+                        contentStyle={{
+                          backgroundColor: 'hsl(var(--card))',
+                          border: '1px solid hsl(var(--border))',
+                          borderRadius: '6px'
+                        }}
+                      />
+                      <Bar 
+                        dataKey="reels" 
+                        fill="hsl(var(--primary))"
+                        radius={[2, 2, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="text-center py-12 text-muted-foreground">
+                  No cadence data available. Enable a model to start tracking posting frequency.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }

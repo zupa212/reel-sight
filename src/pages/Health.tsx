@@ -1,639 +1,326 @@
-import React, { useState } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { toast } from "@/hooks/use-toast";
 import { 
-  Server, 
-  Database, 
-  Zap, 
-  Clock, 
   CheckCircle, 
   XCircle, 
-  AlertTriangle,
-  RefreshCw,
-  ExternalLink,
-  Activity,
-  Webhook,
-  Settings,
-  Code2,
-  Play,
-  Send
-} from 'lucide-react';
-import { format } from 'date-fns';
-import { useCronStatus } from '@/lib/supabase-queries';
-import { callEdge } from '@/lib/action';
-import { track } from '@/lib/track';
-import { useToast } from '@/hooks/use-toast';
+  Activity, 
+  Database, 
+  Zap, 
+  Calendar,
+  Eye,
+  EyeOff
+} from "lucide-react";
+import { WorkspaceBanner } from "@/components/ui/workspace-banner";
+import { APP_CONFIG, getMaskedAnonKey } from "@/lib/config";
+import { track } from "@/lib/track";
+import { callEdge } from "@/lib/action";
 
 export default function Health() {
-  const [isTestingWebhook, setIsTestingWebhook] = useState(false);
-  const [isTestingInbox, setIsTestingInbox] = useState(false);
-  const [isTestingModel, setIsTestingModel] = useState(false);
-  
-  const { toast } = useToast();
-  const { data: cronStatus, isLoading: cronLoading, refetch: refetchCron } = useCronStatus();
-  
-  // Environment status checks
-  const environmentStatus = {
-    supabaseUrl: import.meta.env.VITE_SUPABASE_URL || 'https://gmhirmoqzuipceblfzfe.supabase.co',
-    enableModelUrl: import.meta.env.VITE_ENABLE_MODEL_URL || null,
-    apifyWebhookUrl: import.meta.env.VITE_APIFY_WEBHOOK_URL || null,
-    supabaseConnected: true,
-    secretsConfigured: {
-      apifyToken: true,
-      apifyWebhookSecret: true
+  const [testingFunctions, setTestingFunctions] = useState<Set<string>>(new Set());
+
+  // Fetch recent event logs
+  const { data: eventLogs, isLoading: logsLoading } = useQuery({
+    queryKey: ['event-logs', 5],
+    queryFn: async () => {
+      track('health:event_logs_fetch_start');
+      const { data, error } = await supabase
+        .from('event_logs')
+        .select('*')
+        .order('ts', { ascending: false })
+        .limit(5);
+      
+      if (error) {
+        track('health:event_logs_fetch_error', { error: error.message });
+        throw error;
+      }
+      
+      track('health:event_logs_fetch_ok', { count: data?.length || 0 });
+      return data;
+    }
+  });
+
+  // Test edge function
+  const testFunction = async (functionName: string, url: string, payload = {}) => {
+    setTestingFunctions(prev => new Set([...prev, functionName]));
+    track('health:function_test_start', { functionName });
+
+    try {
+      const result = await callEdge(url, payload);
+      
+      if (result.ok) {
+        track('health:function_test_ok', { functionName });
+        toast({
+          title: `${functionName} ✅`,
+          description: "Function responded successfully",
+        });
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      track('health:function_test_error', { functionName, error: String(error) });
+      toast({
+        title: `${functionName} ❌`,
+        description: error instanceof Error ? error.message : "Function test failed",
+        variant: "destructive",
+      });
+    } finally {
+      setTestingFunctions(prev => {
+        const next = new Set(prev);
+        next.delete(functionName);
+        return next;
+      });
     }
   };
 
-  // Helper function to check if URL is present
-  const checkEnvVar = (varName: string, value: string | null) => ({
-    name: varName,
-    present: !!value,
-    value: value || 'Not configured'
-  });
-
-  const envVars = [
-    checkEnvVar('VITE_SUPABASE_URL', environmentStatus.supabaseUrl),
-    checkEnvVar('VITE_ENABLE_MODEL_URL', environmentStatus.enableModelUrl),
-    checkEnvVar('VITE_APIFY_WEBHOOK_URL', environmentStatus.apifyWebhookUrl)
+  const constants = [
+    {
+      name: "SUPABASE_URL",
+      value: APP_CONFIG.SUPABASE_URL,
+      status: "ok" as const,
+      masked: false
+    },
+    {
+      name: "SUPABASE_ANON_KEY",
+      value: getMaskedAnonKey(),
+      status: "ok" as const,
+      masked: true
+    },
+    {
+      name: "DEFAULT_WORKSPACE_ID",
+      value: APP_CONFIG.DEFAULT_WORKSPACE_ID,
+      status: APP_CONFIG.DEFAULT_WORKSPACE_ID !== "00000000-0000-0000-0000-000000000000" ? "ok" : "warning" as const,
+      masked: false
+    },
+    {
+      name: "ENABLE_MODEL_URL",
+      value: APP_CONFIG.ENABLE_MODEL_URL,
+      status: "ok" as const,
+      masked: false
+    },
+    {
+      name: "APIFY_WEBHOOK_URL", 
+      value: APP_CONFIG.APIFY_WEBHOOK_URL,
+      status: "ok" as const,
+      masked: false
+    }
   ];
 
   const edgeFunctions = [
     {
-      name: 'apify_webhook',
-      url: 'https://gmhirmoqzuipceblfzfe.functions.supabase.co/apify_webhook',
-      status: 'healthy',
-      lastDeployment: new Date('2024-01-15T10:30:00Z'),
-      description: 'Handles incoming webhook data from Apify scraper'
+      name: "enable_model",
+      url: APP_CONFIG.ENABLE_MODEL_URL,
+      payload: { modelId: "test-model-id" },
+      description: "Starts Apify backfill and sets model status enabled"
     },
     {
-      name: 'process_inbox',
-      url: 'https://gmhirmoqzuipceblfzfe.functions.supabase.co/process_inbox',
-      status: 'healthy',
-      lastDeployment: new Date('2024-01-15T10:25:00Z'),
-      description: 'Processes webhook inbox and normalizes data'
+      name: "process_inbox",
+      url: `${APP_CONFIG.SUPABASE_URL}/functions/v1/process_inbox`,
+      payload: {},
+      description: "Pulls Apify dataset, upserts into reels + reel_metrics_daily"
     },
     {
-      name: 'enable_model',
-      url: 'https://gmhirmoqzuipceblfzfe.functions.supabase.co/enable_model',
-      status: 'warning',
-      lastDeployment: new Date('2024-01-15T09:45:00Z'),
-      description: 'Starts backfill scraping for newly enabled models'
+      name: "schedule_scrape_reels",
+      url: `${APP_CONFIG.SUPABASE_URL}/functions/v1/schedule_scrape_reels`,
+      payload: {},
+      description: "Daily run (3 newest reels per enabled model)"
     },
     {
-      name: 'schedule_scrape_reels',
-      url: 'https://gmhirmoqzuipceblfzfe.functions.supabase.co/schedule_scrape_reels',
-      status: 'healthy',
-      lastDeployment: new Date('2024-01-15T10:15:00Z'),
-      description: 'Daily cron job to scrape latest reels'
+      name: "log_event",
+      url: `${APP_CONFIG.SUPABASE_URL}/functions/v1/log_event`,
+      payload: { event: "health:test", context: { source: "health_page" }, page: "/dev/health" },
+      description: "Client event logging"
     }
   ];
 
-  const databaseHealth = {
-    tables: [
-      { name: 'models', count: 12, lastActivity: new Date('2024-01-15T11:20:00Z') },
-      { name: 'reels', count: 1248, lastActivity: new Date('2024-01-15T11:15:00Z') },
-      { name: 'reel_metrics_daily', count: 8736, lastActivity: new Date('2024-01-15T11:10:00Z') },
-      { name: 'webhooks_inbox', count: 342, lastActivity: new Date('2024-01-15T11:00:00Z') },
-      { name: 'workspaces', count: 3, lastActivity: new Date('2024-01-14T16:30:00Z') }
-    ],
-    rls: {
-      enabled: true,
-      policies: 12,
-      status: 'healthy'
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case "ok": return <CheckCircle className="h-4 w-4 text-success" />;
+      case "warning": return <XCircle className="h-4 w-4 text-warning" />;
+      case "error": return <XCircle className="h-4 w-4 text-destructive" />;
+      default: return <Activity className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
-  // Process cron status data
-  const getCronJobStatus = (jobName: string) => {
-    const job = cronStatus?.find(status => status.name === jobName);
-    return job || { name: jobName, last_ok: null, last_run_at: null, last_message: null };
-  };
-
-  const cronJobs = [
-    {
-      name: 'schedule_scrape_reels',
-      displayName: 'Daily Reel Scraping',
-      schedule: '0 6 * * *', // 6 AM daily
-      ...getCronJobStatus('schedule_scrape_reels')
-    },
-    {
-      name: 'process_inbox',
-      displayName: 'Process Webhook Inbox',
-      schedule: '*/15 * * * *', // Every 15 minutes
-      ...getCronJobStatus('process_inbox')
-    },
-    {
-      name: 'apify_webhook_last',
-      displayName: 'Apify Webhook Handler',
-      schedule: 'On demand',
-      ...getCronJobStatus('apify_webhook_last')
-    }
-  ];
-
-  const webhookStats = {
-    last24h: {
-      received: 45,
-      processed: 43,
-      failed: 2,
-      avgProcessingTime: '2.3s'
-    },
-    recentActivity: [
-      { source: 'instagram', status: 'success', timestamp: new Date('2024-01-15T11:20:00Z'), items: 5 },
-      { source: 'instagram', status: 'success', timestamp: new Date('2024-01-15T11:15:00Z'), items: 3 },
-      { source: 'instagram', status: 'failed', timestamp: new Date('2024-01-15T11:10:00Z'), items: 0 },
-      { source: 'instagram', status: 'success', timestamp: new Date('2024-01-15T11:05:00Z'), items: 8 }
-    ]
-  };
-
-  const getStatusIcon = (status: string | boolean) => {
-    const normalizedStatus = typeof status === 'boolean' ? (status ? 'success' : 'error') : status;
-    
-    switch (normalizedStatus) {
-      case 'healthy':
-      case 'success':
-        return <CheckCircle className="w-4 h-4 text-success" />;
-      case 'warning':
-        return <AlertTriangle className="w-4 h-4 text-warning" />;
-      case 'error':
-      case 'failed':
-        return <XCircle className="w-4 h-4 text-destructive" />;
-      default:
-        return <AlertTriangle className="w-4 h-4 text-muted-foreground" />;
-    }
-  };
-
-  const getStatusBadge = (status: string | boolean | null) => {
-    const normalizedStatus = typeof status === 'boolean' ? (status ? 'success' : 'failed') : status;
-    
-    switch (normalizedStatus) {
-      case 'healthy':
-      case 'success':
-        return <Badge className="bg-success/10 text-success border-success/20">healthy</Badge>;
-      case 'warning':
-        return <Badge className="bg-warning/10 text-warning border-warning/20">warning</Badge>;
-      case 'error':
-      case 'failed':
-        return <Badge className="bg-destructive/10 text-destructive border-destructive/20">error</Badge>;
-      default:
-        return <Badge variant="secondary">unknown</Badge>;
-    }
-  };
-
-  // Test functions
-  const testSendWebhook = async () => {
-    setIsTestingWebhook(true);
-    track('health:test_webhook_start');
-    
-    try {
-      const webhookUrl = environmentStatus.apifyWebhookUrl;
-      if (!webhookUrl) {
-        toast({
-          title: "Error",
-          description: "VITE_APIFY_WEBHOOK_URL not configured",
-          variant: "destructive"
-        });
-        return;
-      }
-
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-apify-run-id': 'test-run-' + Date.now()
-        },
-        body: JSON.stringify({
-          resource: { id: 'test-dataset-123' },
-          eventType: 'ACTOR.RUN.SUCCEEDED',
-          data: {
-            datasetId: 'test-dataset-123',
-            status: 'SUCCEEDED'
-          }
-        })
-      });
-
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Test webhook sent successfully"
-        });
-        track('health:test_webhook_success');
-      } else {
-        throw new Error(`HTTP ${response.status}`);
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: `Webhook test failed: ${error}`,
-        variant: "destructive"
-      });
-      track('health:test_webhook_error', { error: String(error) });
-    } finally {
-      setIsTestingWebhook(false);
-    }
-  };
-
-  const testProcessInbox = async () => {
-    setIsTestingInbox(true);
-    track('health:test_process_inbox_start');
-    
-    try {
-      const result = await callEdge('https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/process_inbox');
-      
-      if (result.ok) {
-        toast({
-          title: "Success",
-          description: "Process inbox executed successfully"
-        });
-        track('health:test_process_inbox_success');
-        refetchCron();
-      } else {
-        throw new Error(result.error);
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: `Process inbox test failed: ${error}`,
-        variant: "destructive"
-      });
-      track('health:test_process_inbox_error', { error: String(error) });
-    } finally {
-      setIsTestingInbox(false);
-    }
-  };
-
-  const testEnableModel = async () => {
-    setIsTestingModel(true);
-    track('health:test_enable_model_start');
-    
-    try {
-      const result = await callEdge('https://gmhirmoqzuipceblfzfe.supabase.co/functions/v1/enable_model', {
-        modelId: 'demo-model-id'
-      });
-      
-      if (result.ok) {
-        toast({
-          title: "Success",
-          description: "Enable model test executed successfully"
-        });
-        track('health:test_enable_model_success');
-      } else {
-        throw new Error(result.error);
-      }
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: `Enable model test failed: ${error}`,
-        variant: "destructive"
-      });
-      track('health:test_enable_model_error', { error: String(error) });
-    } finally {
-      setIsTestingModel(false);
-    }
+  const formatLogTime = (timestamp: string) => {
+    return new Date(timestamp).toLocaleString();
   };
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">System Health</h1>
-          <p className="text-muted-foreground">
-            Monitor system status, edge functions, and data pipeline health
-          </p>
-        </div>
-        <Button size="sm" variant="outline">
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh All
-        </Button>
+    <div className="container mx-auto py-8 space-y-6 animate-fade-in">
+      <WorkspaceBanner />
+      
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight text-foreground">Health Check</h1>
+        <p className="text-muted-foreground">System diagnostics and configuration status</p>
       </div>
 
-      {/* Environment Status */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="bg-gradient-card border-0 shadow-md">
+      <div className="grid gap-6">
+        {/* Configuration Constants */}
+        <Card className="bg-gradient-card border-border/50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Environment
+              <Database className="h-5 w-5 text-primary" />
+              Configuration Constants
             </CardTitle>
             <CardDescription>
-              Core system configuration and connectivity
+              Hardcoded values used throughout the application
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Environment Variables</div>
-              <div className="space-y-1">
-                {envVars.map((envVar) => (
-                  <div key={envVar.name} className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground font-mono">{envVar.name}</span>
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(envVar.present ? 'success' : 'error')}
-                      {envVar.present && (
-                        <span className="text-xs text-muted-foreground max-w-32 truncate">
-                          {envVar.value}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            
-            <Separator />
-            
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Secrets Configuration</div>
-              <div className="space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">APIFY_TOKEN</span>
-                  {getStatusIcon(environmentStatus.secretsConfigured.apifyToken ? 'success' : 'error')}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">APIFY_WEBHOOK_SECRET</span>
-                  {getStatusIcon(environmentStatus.secretsConfigured.apifyWebhookSecret ? 'success' : 'error')}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-card border-0 shadow-md">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Activity className="w-5 h-5" />
-              System Metrics
-            </CardTitle>
-            <CardDescription>
-              Real-time performance indicators
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-primary">98.9%</div>
-                <div className="text-xs text-muted-foreground">Uptime (30d)</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-primary">145ms</div>
-                <div className="text-xs text-muted-foreground">Avg Response</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-success">0</div>
-                <div className="text-xs text-muted-foreground">Active Errors</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-accent">4.2GB</div>
-                <div className="text-xs text-muted-foreground">DB Size</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Edge Functions */}
-      <Card className="bg-gradient-card border-0 shadow-md">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Zap className="w-5 h-5" />
-            Edge Functions
-          </CardTitle>
-          <CardDescription>
-            Serverless function deployment status and health
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {edgeFunctions.map((func) => (
-              <div key={func.name} className="flex items-center justify-between p-4 rounded-lg bg-muted/50">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-3">
-                    <Code2 className="w-4 h-4 text-muted-foreground" />
-                    <span className="font-medium font-mono">{func.name}</span>
-                    {getStatusBadge(func.status)}
-                  </div>
-                  <p className="text-sm text-muted-foreground">{func.description}</p>
-                  <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                    <span>Last deployed: {format(func.lastDeployment, 'MMM d, yyyy HH:mm')}</span>
-                  </div>
-                </div>
-                <Button variant="outline" size="sm" asChild>
-                  <a href={func.url} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="w-3 h-3 mr-1" />
-                    Test
-                  </a>
-                </Button>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Database Health */}
-      <Card className="bg-gradient-card border-0 shadow-md">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="w-5 h-5" />
-            Database Health
-          </CardTitle>
-          <CardDescription>
-            Table statistics and Row Level Security status
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-4 md:grid-cols-3">
+          <CardContent>
             <div className="space-y-3">
-              <div className="font-medium">Table Statistics</div>
-              {databaseHealth.tables.map((table) => (
-                <div key={table.name} className="flex items-center justify-between text-sm">
-                  <span className="font-mono">{table.name}</span>
-                  <div className="text-right">
-                    <div className="font-medium">{table.count.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {format(table.lastActivity, 'HH:mm')}
+              {constants.map((constant) => (
+                <div key={constant.name} className="flex items-center justify-between p-3 bg-background/50 rounded-lg border border-border/50">
+                  <div className="flex items-center gap-3">
+                    {getStatusIcon(constant.status)}
+                    <div>
+                      <div className="font-medium text-foreground">{constant.name}</div>
+                      <div className="text-sm text-muted-foreground font-mono flex items-center gap-2">
+                        {constant.value}
+                        {constant.masked && <EyeOff className="h-3 w-3" />}
+                      </div>
                     </div>
                   </div>
+                  <Badge variant={constant.status === "ok" ? "default" : "destructive"}>
+                    {constant.status === "ok" ? "✅" : "⚠️"}
+                  </Badge>
                 </div>
               ))}
             </div>
+          </CardContent>
+        </Card>
 
-            <div className="space-y-3">
-              <div className="font-medium">Row Level Security</div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">RLS Enabled</span>
-                  {getStatusIcon(databaseHealth.rls.enabled ? 'success' : 'error')}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Active Policies</span>
-                  <span className="text-sm font-medium">{databaseHealth.rls.policies}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Status</span>
-                  {getStatusBadge(databaseHealth.rls.status)}
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div className="font-medium">Recent Migrations</div>
-              <div className="text-sm text-muted-foreground">
-                Last migration: <br />
-                <span className="font-mono">20240115_add_models_table</span><br />
-                <span className="text-xs">Jan 15, 2024 10:30 AM</span>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Cron Jobs & Webhooks */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card className="bg-gradient-card border-0 shadow-md">
+        {/* Edge Functions Testing */}
+        <Card className="bg-gradient-card border-border/50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Clock className="w-5 h-5" />
-              Scheduled Jobs
+              <Zap className="h-5 w-5 text-primary" />
+              Edge Functions
             </CardTitle>
             <CardDescription>
-              Cron job status and execution history
+              Test connectivity and functionality of Supabase edge functions
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {cronLoading ? (
+          <CardContent>
+            <div className="grid gap-4">
+              {edgeFunctions.map((func) => (
+                <div key={func.name} className="flex items-center justify-between p-4 bg-background/50 rounded-lg border border-border/50">
+                  <div className="flex-1">
+                    <div className="font-medium text-foreground">{func.name}</div>
+                    <div className="text-sm text-muted-foreground">{func.description}</div>
+                    <div className="text-xs text-muted-foreground font-mono mt-1">{func.url}</div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => testFunction(func.name, func.url, func.payload)}
+                    disabled={testingFunctions.has(func.name)}
+                  >
+                    {testingFunctions.has(func.name) ? "Testing..." : "Test"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recent Event Logs */}
+        <Card className="bg-gradient-card border-border/50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-primary" />
+              Recent Event Logs
+            </CardTitle>
+            <CardDescription>
+              Last 5 events from the application (read-only)
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {logsLoading ? (
               <div className="space-y-3">
-                {[1, 2, 3].map(i => (
-                  <div key={i} className="h-16 bg-muted animate-pulse rounded-lg" />
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className="animate-pulse flex items-center gap-3 p-3 bg-background/50 rounded-lg">
+                    <div className="h-4 w-4 bg-muted rounded"></div>
+                    <div className="flex-1 space-y-1">
+                      <div className="h-4 bg-muted rounded w-1/3"></div>
+                      <div className="h-3 bg-muted rounded w-1/2"></div>
+                    </div>
+                    <div className="h-3 bg-muted rounded w-20"></div>
+                  </div>
+                ))}
+              </div>
+            ) : eventLogs && eventLogs.length > 0 ? (
+              <div className="space-y-3">
+                {eventLogs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-3 p-3 bg-background/50 rounded-lg border border-border/50">
+                    <div className="flex-shrink-0 mt-0.5">
+                      {log.level === 'error' ? 
+                        <XCircle className="h-4 w-4 text-destructive" /> :
+                        <CheckCircle className="h-4 w-4 text-success" />
+                      }
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-foreground">{log.event}</div>
+                      {log.context && Object.keys(log.context).length > 0 && (
+                        <div className="text-xs text-muted-foreground font-mono mt-1">
+                          {JSON.stringify(log.context, null, 2)}
+                        </div>
+                      )}
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {log.page && `${log.page} • `}{formatLogTime(log.ts)}
+                      </div>
+                    </div>
+                    <Badge variant={log.level === 'error' ? 'destructive' : 'outline'} className="text-xs">
+                      {log.level}
+                    </Badge>
+                  </div>
                 ))}
               </div>
             ) : (
-              cronJobs.map((job, index) => (
-                <div key={job.name} className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">{job.displayName}</span>
-                    {getStatusBadge(job.last_ok)}
-                  </div>
-                  <div className="text-xs text-muted-foreground space-y-1">
-                    <div>Schedule: <span className="font-mono">{job.schedule}</span></div>
-                    <div>
-                      Last run: {job.last_run_at ? 
-                        format(new Date(job.last_run_at), 'MMM d, HH:mm') : 
-                        'Never'
-                      }
-                    </div>
-                    {job.last_message && (
-                      <div>Message: <span className="font-mono">{job.last_message}</span></div>
-                    )}
-                  </div>
-                  {index < cronJobs.length - 1 && <Separator />}
-                </div>
-              ))
+              <div className="text-center py-8 text-muted-foreground">
+                No event logs available
+              </div>
             )}
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-card border-0 shadow-md">
+        {/* System Status Summary */}
+        <Card className="bg-gradient-card border-border/50">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Webhook className="w-5 h-5" />
-              Webhook Activity
+              <Eye className="h-5 w-5 text-primary" />
+              System Status
             </CardTitle>
-            <CardDescription>
-              Incoming webhook processing statistics
-            </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-center">
-              <div>
-                <div className="text-lg font-bold text-primary">{webhookStats.last24h.received}</div>
-                <div className="text-xs text-muted-foreground">Received (24h)</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-success">{webhookStats.last24h.processed}</div>
-                <div className="text-xs text-muted-foreground">Processed</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-destructive">{webhookStats.last24h.failed}</div>
-                <div className="text-xs text-muted-foreground">Failed</div>
-              </div>
-              <div>
-                <div className="text-lg font-bold text-accent">{webhookStats.last24h.avgProcessingTime}</div>
-                <div className="text-xs text-muted-foreground">Avg Time</div>
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Recent Activity</div>
-              {webhookStats.recentActivity.map((activity, index) => (
-                <div key={index} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    {getStatusIcon(activity.status)}
-                    <span className="font-mono">{activity.source}</span>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs">{activity.items} items</div>
-                    <div className="text-xs text-muted-foreground">
-                      {format(activity.timestamp, 'HH:mm:ss')}
-                    </div>
-                  </div>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-success">
+                  {constants.filter(c => c.status === "ok").length}/{constants.length}
                 </div>
-              ))}
+                <div className="text-sm text-muted-foreground">Config Status</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-primary">
+                  {edgeFunctions.length}
+                </div>
+                <div className="text-sm text-muted-foreground">Edge Functions</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-foreground">
+                  {APP_CONFIG.AUTH_ENABLED ? "Enabled" : "Disabled"}
+                </div>
+                <div className="text-sm text-muted-foreground">Authentication</div>
+              </div>
             </div>
           </CardContent>
         </Card>
       </div>
-
-      {/* Testing Buttons */}
-      <Card className="bg-gradient-card border-0 shadow-md">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Play className="w-5 h-5" />
-            System Tests
-          </CardTitle>
-          <CardDescription>
-            Test core system functionality and edge functions
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-3">
-            <Button 
-              onClick={testSendWebhook}
-              disabled={isTestingWebhook || !environmentStatus.apifyWebhookUrl}
-              className="flex items-center gap-2"
-            >
-              <Send className="w-4 h-4" />
-              {isTestingWebhook ? 'Sending...' : 'Send Test Webhook'}
-            </Button>
-            
-            <Button 
-              onClick={testProcessInbox}
-              disabled={isTestingInbox}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Webhook className="w-4 h-4" />
-              {isTestingInbox ? 'Processing...' : 'Run Process Inbox'}
-            </Button>
-            
-            <Button 
-              onClick={testEnableModel}
-              disabled={isTestingModel}
-              variant="outline"
-              className="flex items-center gap-2"
-            >
-              <Zap className="w-4 h-4" />
-              {isTestingModel ? 'Testing...' : 'Test Enable Model'}
-            </Button>
-          </div>
-          
-          <div className="text-sm text-muted-foreground">
-            These tests help verify that your edge functions and webhook endpoints are working correctly.
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

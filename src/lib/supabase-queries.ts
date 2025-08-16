@@ -3,15 +3,22 @@ import { supabase } from '@/integrations/supabase/client';
 import { track } from './track';
 import { getDefaultWorkspaceId, APP_CONFIG } from './config';
 
-// Models queries
+// Models queries - ensure all use DEFAULT_WORKSPACE_ID
 export function useModels() {
   return useQuery({
     queryKey: ['models'],
     queryFn: async () => {
       track('query:models_fetch_start');
+      
+      const workspaceId = getDefaultWorkspaceId();
+      if (!workspaceId) {
+        throw new Error('Default workspace not configured');
+      }
+
       const { data, error } = await supabase
         .from('models')
         .select('*')
+        .eq('workspace_id', workspaceId)
         .order('created_at', { ascending: false });
       
       if (error) {
@@ -21,7 +28,8 @@ export function useModels() {
       
       track('query:models_fetch_ok', { count: data?.length || 0 });
       return data;
-    }
+    },
+    enabled: !!getDefaultWorkspaceId()
   });
 }
 
@@ -169,7 +177,7 @@ export function useAddModel() {
   });
 }
 
-// Reels queries
+// Reels queries - ensure workspace filtering
 export function useReels(filters?: {
   modelId?: string;
   dateRange?: string;
@@ -179,6 +187,11 @@ export function useReels(filters?: {
     queryKey: ['reels', filters],
     queryFn: async () => {
       track('query:reels_fetch_start', { filters });
+      
+      const workspaceId = getDefaultWorkspaceId();
+      if (!workspaceId) {
+        throw new Error('Default workspace not configured');
+      }
       
       let query = supabase
         .from('reels')
@@ -194,6 +207,7 @@ export function useReels(filters?: {
             saves
           )
         `)
+        .eq('workspace_id', workspaceId)
         .order('posted_at', { ascending: false });
 
       if (filters?.modelId) {
