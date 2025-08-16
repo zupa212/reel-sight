@@ -80,33 +80,39 @@ serve(async (req) => {
       const apifyWebhookSecret = Deno.env.get("APIFY_WEBHOOK_SECRET");
       const supabaseUrl = Deno.env.get("SUPABASE_URL");
       
+      console.log("Environment check:", {
+        hasApifyToken: !!apifyToken,
+        hasWebhookSecret: !!apifyWebhookSecret,
+        hasSupabaseUrl: !!supabaseUrl,
+        tokenLength: apifyToken?.length || 0
+      });
+      
       if (!apifyToken || !apifyWebhookSecret) {
         throw new Error("APIFY_TOKEN or APIFY_WEBHOOK_SECRET not configured");
       }
 
       const webhookUrl = `${supabaseUrl}/functions/v1/apify_webhook?source=instagram&secret=${apifyWebhookSecret}`;
       
+      // Use the correct Apify actor ID for Instagram Reel Scraper
+      const actorId = "xMc5Ga1oCONPmWJIa";
+      const apifyUrl = `https://api.apify.com/v2/acts/${actorId}/runs?token=${apifyToken}`;
+      
       const apifyInput = {
-        input: {
-          username: [model.username], // Apify expects username as an array
-          resultsLimit: 100
-        },
-        webhooks: [{
-          eventTypes: ["ACTOR.RUN.SUCCEEDED", "ACTOR.RUN.FAILED", "ACTOR.RUN.ABORTED"],
-          requestUrl: webhookUrl
-        }]
+        usernames: [model.username], // Updated to use 'usernames' field
+        resultsLimit: 100
       };
 
-      console.log(`Starting Apify run for ${model.username} with input:`, JSON.stringify(apifyInput, null, 2));
+      console.log(`Starting Apify run for ${model.username}:`, {
+        url: apifyUrl,
+        input: apifyInput,
+        webhookUrl: webhookUrl
+      });
 
-      const runResponse = await fetch(
-        `https://api.apify.com/v2/acts/apify~instagram-reel-scraper/runs?token=${apifyToken}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(apifyInput)
-        }
-      );
+      const runResponse = await fetch(apifyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apifyInput)
+      });
 
       if (!runResponse.ok) {
         const errorText = await runResponse.text();
