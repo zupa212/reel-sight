@@ -7,41 +7,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { Skeleton } from '@/components/ui/skeleton';
 
 export function AppLayout() {
-  const { user, loading } = useAuth();
-  const location = useLocation();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-subtle">
-        <div className="flex h-screen">
-          <div className="w-64 bg-card border-r">
-            <div className="p-6">
-              <Skeleton className="h-8 w-32 mb-8" />
-              <div className="space-y-4">
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-                <Skeleton className="h-6 w-full" />
-              </div>
-            </div>
-          </div>
-          <div className="flex-1">
-            <div className="border-b bg-card/50">
-              <div className="flex h-16 items-center px-6">
-                <Skeleton className="h-8 w-48" />
-              </div>
-            </div>
-            <div className="p-6">
-              <Skeleton className="h-64 w-full" />
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Navigate to="/auth" state={{ from: location }} replace />;
-  }
+  // Remove authentication check for testing
 
   return (
     <div className="min-h-screen bg-gradient-subtle">
