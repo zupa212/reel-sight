@@ -1,1 +1,51 @@
 project_id = "gmhirmoqzuipceblfzfe"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "auth", "storage", "realtime"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[auth]
+enabled = true
+port = 54324
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 3600
+enable_signup = true
+enable_confirmations = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+[database]
+password = "postgres"
+
+[db]
+password = "postgres"
+
+[edge_functions]
+enabled = true
+
+[functions.log_event]
+verify_jwt = false
+
+[functions.enable_model]
+verify_jwt = false
+
+[functions.apify_webhook]
+verify_jwt = false
+
+[functions.process_inbox]
+verify_jwt = false
+
+[functions.schedule_scrape_reels]
+verify_jwt = false
+
+[storage]
+enabled = true
+port = 54323
+file_size_limit = "50MB"

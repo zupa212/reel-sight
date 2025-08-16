@@ -6,10 +6,7 @@ export const addModelSchema = z.object({
     .regex(/^[a-zA-Z0-9._]+$/, 'Invalid username format')
     .transform(val => val.replace(/^@+/, '')), // Remove @ symbols
   displayName: z.string().optional()
-}).transform(data => ({
-  username: data.username, // Ensure username is always string after transform
-  displayName: data.displayName
-}));
+});
 
 export const reelFiltersSchema = z.object({
   modelId: z.string().optional(),
@@ -21,7 +18,7 @@ export const reelFiltersSchema = z.object({
 export const logEventSchema = z.object({
   event: z.string().min(1),
   level: z.enum(['info', 'warn', 'error', 'debug']).default('info'),
-  context: z.record(z.any()).default({}),
+  context: z.record(z.string(), z.any()).default({}),
   page: z.string().optional()
 });
 

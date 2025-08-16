@@ -63,7 +63,10 @@ export default function Models() {
         displayName: newModelDisplayName || undefined
       });
       
-      await addModelMutation.mutateAsync(validatedData);
+      await addModelMutation.mutateAsync({
+        username: validatedData.username,
+        displayName: validatedData.displayName
+      });
       
       toast({
         title: "Model added",

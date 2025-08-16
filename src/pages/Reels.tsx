@@ -106,9 +106,18 @@ export default function Reels() {
   const [minViews, setMinViews] = useState<number[]>([0]);
   const [searchTerm, setSearchTerm] = useState<string>('');
   
-  // TODO: Replace with real data hooks when ready
+  // TODO: Replace with real Supabase hooks when ready
+  // const { toast } = useToast();
+  // const { data: models } = useModels();
+  // const { data: reels, isLoading, error } = useReels({
+  //   modelId: selectedModel !== 'all' ? selectedModel : undefined,
+  //   dateRange,
+  //   minViews: minViews[0]
+  // });
+
   const handleFilterChange = (type: string, value: any) => {
-    track('reels:filter_changed', { type, value });
+    // track('reels:filter_changed', { type, value });
+    console.log('Filter changed:', type, value);
   };
 
   const formatNumber = (num: number) => {
