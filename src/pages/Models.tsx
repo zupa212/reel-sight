@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { Plus, User, Clock, Database, Loader2 } from "lucide-react";
+import { Plus, User, Clock, Database, Loader2, RefreshCw } from "lucide-react";
 import { WorkspaceBanner } from "@/components/ui/workspace-banner";
 import { APP_CONFIG, getDefaultWorkspaceId, isWorkspaceConfigured } from "@/lib/config";
 import { track } from "@/lib/track";
@@ -30,6 +30,7 @@ export default function Models() {
   const [displayName, setDisplayName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [enablingModels, setEnablingModels] = useState<Set<string>>(new Set());
+  const [fetchingModels, setFetchingModels] = useState<Set<string>>(new Set());
 
   // Fetch models for default workspace
   const { data: models, isLoading, refetch } = useQuery({
@@ -187,6 +188,57 @@ export default function Models() {
         title: "Disable failed",
         description: error instanceof Error ? error.message : "Failed to disable model",
         variant: "destructive",
+      });
+    }
+  };
+
+  // Fetch latest reels for model
+  const handleFetchReels = async (model: Model & { reels: { count: number }[] }) => {
+    setFetchingModels(prev => new Set([...prev, model.id]));
+    track('models:fetch_reels_clicked', { modelId: model.id, username: model.username });
+
+    try {
+      const result = await callEdge(APP_CONFIG.ENABLE_MODEL_URL, { 
+        modelId: model.id, 
+        refresh: true 
+      });
+      
+      if (!result.ok) {
+        throw new Error(result.error);
+      }
+
+      track('models:fetch_reels_ok', { modelId: model.id });
+      toast({
+        title: "Fetching latest reels...",
+        description: `Started fetching newest reels for @${model.username}`,
+      });
+
+      // TODO: Implement polling or real-time updates to detect when ingestion completes
+      // For now, we'll show the success toast after a delay
+      setTimeout(() => {
+        toast({
+          title: "Reels updated",
+          description: `Reels updated for @${model.username}`,
+        });
+        refetch();
+        setFetchingModels(prev => {
+          const next = new Set(prev);
+          next.delete(model.id);
+          return next;
+        });
+      }, 5000);
+
+    } catch (error) {
+      track('models:fetch_reels_error', { modelId: model.id, error: String(error) });
+      toast({
+        title: "Could not fetch reels",
+        description: "Please try again",
+        variant: "destructive",
+      });
+      setFetchingModels(prev => {
+        const next = new Set(prev);
+        next.delete(model.id);
+        return next;
       });
     }
   };
@@ -360,6 +412,28 @@ export default function Models() {
                     <Badge variant={getStatusVariant(model.status)}>
                       {model.status.charAt(0).toUpperCase() + model.status.slice(1)}
                     </Badge>
+                    
+                    {model.status === 'enabled' && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleFetchReels(model)}
+                        disabled={fetchingModels.has(model.id) || !isWorkspaceConfigured()}
+                        title="Fetch Latest Reels"
+                      >
+                        {fetchingModels.has(model.id) ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Fetching...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            Fetch Reels
+                          </>
+                        )}
+                      </Button>
+                    )}
                     
                     <Button
                       variant={model.status === 'enabled' ? 'destructive' : 'default'}
